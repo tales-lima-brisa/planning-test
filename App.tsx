@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Users, LogIn, ArrowRight, ClipboardList, Copy, Link as LinkIcon, Menu, X, Loader2, LogOut } from 'lucide-react';
+import { Users, LogIn, ArrowRight, ClipboardList, Copy, Link as LinkIcon, Menu, X, Loader2, LogOut, Server } from 'lucide-react';
 import { socketService } from './services/socketService';
 import { GameState, User, NetworkMessage, FIBONACCI_SEQ, Task } from './types';
 import { Card } from './components/Card';
@@ -13,6 +13,8 @@ function App() {
   // Local UI State
   const [userName, setUserName] = useState('');
   const [roomInput, setRoomInput] = useState('');
+  // Default to localhost for development, user can change to IP
+  const [serverUrl, setServerUrl] = useState('localhost:8080'); 
   const [isConnecting, setIsConnecting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -131,7 +133,7 @@ function App() {
 
   // Actions
   const createRoom = async () => {
-    if (!userName.trim()) return;
+    if (!userName.trim() || !serverUrl.trim()) return;
     setIsConnecting(true);
     setErrorMsg(null);
 
@@ -139,7 +141,7 @@ function App() {
     const newUser: User = { id: uuid(), name: userName, isHost: true };
 
     try {
-      await socketService.createRoom(newRoomId);
+      await socketService.connect(serverUrl, newRoomId, newUser);
       
       setCurrentUser(newUser);
       const initialTasks: Task[] = [{id: uuid(), title: 'First User Story', status: 'active'}];
@@ -154,14 +156,14 @@ function App() {
       });
     } catch (err: any) {
       console.error(err);
-      setErrorMsg(err.message || 'Failed to create room. Connection failed.');
+      setErrorMsg(err.message || 'Failed to connect to server.');
     } finally {
       setIsConnecting(false);
     }
   };
 
   const joinRoom = async () => {
-    if (!userName.trim() || !roomInput.trim()) return;
+    if (!userName.trim() || !roomInput.trim() || !serverUrl.trim()) return;
     setIsConnecting(true);
     setErrorMsg(null);
 
@@ -169,19 +171,11 @@ function App() {
     const newUser: User = { id: uuid(), name: userName, isHost: false };
 
     try {
-      await socketService.joinRoom(roomIdToJoin);
+      await socketService.connect(serverUrl, roomIdToJoin, newUser);
       
       setCurrentUser(newUser);
       // Optimistically set room ID
       setGameState(prev => ({ ...prev, roomId: roomIdToJoin }));
-      
-      // Announce join
-      socketService.send({
-        type: 'JOIN',
-        roomId: roomIdToJoin,
-        payload: newUser,
-        senderId: newUser.id
-      });
       
       // Ask for current state
       socketService.send({
@@ -192,7 +186,7 @@ function App() {
       });
     } catch (err: any) {
       console.error(err);
-      setErrorMsg(err.message || 'Failed to join. Room may not exist or host is offline.');
+      setErrorMsg(err.message || 'Failed to connect. Check Server IP.');
     } finally {
       setIsConnecting(false);
     }
@@ -216,12 +210,14 @@ function App() {
 
   const submitVote = (value: string | number) => {
     if (!currentUser || !gameState.roomId) return;
-    // Update local immediately for responsiveness
+    // Broadcast only (local state updated via echo from socketService.send)
+    // Actually, socketService.send now updates local listeners too, 
+    // but React state update here is safe for responsiveness.
     setGameState(prev => ({
         ...prev,
         votes: { ...prev.votes, [currentUser.id]: value }
     }));
-    // Broadcast
+    
     socketService.send({
         type: 'VOTE',
         roomId: gameState.roomId,
@@ -295,9 +291,25 @@ function App() {
             </div>
           </div>
           <h1 className="text-3xl font-bold text-center text-white mb-2">AgileVote</h1>
-          <p className="text-slate-400 text-center mb-8">Synchronized Planning Poker for remote teams.</p>
+          <p className="text-slate-400 text-center mb-8">WebSocket Planning Poker</p>
 
           <div className="space-y-4">
+            <div>
+                <label className="block text-sm font-medium text-slate-400 mb-1">Server Address</label>
+                <div className="relative">
+                    <Server className="absolute left-3 top-3 w-5 h-5 text-slate-600" />
+                    <input 
+                        type="text" 
+                        value={serverUrl}
+                        onChange={(e) => setServerUrl(e.target.value)}
+                        disabled={isConnecting}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-10 pr-4 py-3 text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition disabled:opacity-50 font-mono text-sm"
+                        placeholder="e.g. 192.168.1.5:8080"
+                    />
+                </div>
+                <p className="text-[10px] text-slate-600 mt-1">IP of the machine running "node server.js"</p>
+            </div>
+
             <div>
               <label className="block text-sm font-medium text-slate-400 mb-1">Your Name</label>
               <input 
@@ -320,7 +332,7 @@ function App() {
                <div className="grid grid-cols-2 gap-4">
                   <button 
                     onClick={createRoom}
-                    disabled={!userName || isConnecting}
+                    disabled={!userName || !serverUrl || isConnecting}
                     className="flex flex-col items-center justify-center p-4 rounded-xl border-2 border-slate-700 hover:border-indigo-500 hover:bg-slate-800 transition-all group disabled:opacity-50 disabled:cursor-not-allowed relative"
                   >
                     {isConnecting && !roomInput ? (
@@ -328,7 +340,7 @@ function App() {
                     ) : (
                         <>
                             <span className="text-lg font-bold text-white mb-1 group-hover:text-indigo-400">Create Room</span>
-                            <span className="text-xs text-slate-500">Start a new session</span>
+                            <span className="text-xs text-slate-500">Host New</span>
                         </>
                     )}
                   </button>
@@ -345,7 +357,7 @@ function App() {
                     />
                     <button 
                         onClick={joinRoom}
-                        disabled={!userName || !roomInput || isConnecting}
+                        disabled={!userName || !roomInput || !serverUrl || isConnecting}
                         className="w-full bg-slate-800 hover:bg-indigo-600 text-white py-2 rounded-lg font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
                     >
                         {isConnecting && roomInput ? (
@@ -356,12 +368,6 @@ function App() {
                     </button>
                   </div>
                </div>
-            </div>
-            
-            <div className="text-center mt-6">
-                <p className="text-xs text-slate-600">
-                   Vercel Ready: Uses namespaced PeerJS & Google STUN servers.
-                </p>
             </div>
           </div>
         </div>
@@ -413,7 +419,7 @@ function App() {
                 <div className="flex items-center gap-3">
                    <div className="flex flex-col items-end hidden md:flex">
                        <span className="text-white font-medium text-sm">{currentUser.name}</span>
-                       <span className="text-xs text-slate-500">{currentUser.isHost ? 'Host' : 'Member'}</span>
+                       <span className="text-xs text-slate-500 text-right">{serverUrl}</span>
                    </div>
                    <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-500 to-violet-500 flex items-center justify-center text-white font-bold text-xs">
                        {currentUser.name.substring(0, 2).toUpperCase()}
