@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Users, LogIn, ArrowRight, ClipboardList, Copy, Link as LinkIcon, Menu, X, Loader2 } from 'lucide-react';
+import { Users, LogIn, ArrowRight, ClipboardList, Copy, Link as LinkIcon, Menu, X, Loader2, LogOut } from 'lucide-react';
 import { socketService } from './services/socketService';
 import { GameState, User, NetworkMessage, FIBONACCI_SEQ, Task } from './types';
 import { Card } from './components/Card';
@@ -153,7 +153,8 @@ function App() {
         isRevealed: false
       });
     } catch (err: any) {
-      setErrorMsg(err.message || 'Failed to create room. Try again.');
+      console.error(err);
+      setErrorMsg(err.message || 'Failed to create room. Connection failed.');
     } finally {
       setIsConnecting(false);
     }
@@ -190,10 +191,27 @@ function App() {
         senderId: newUser.id
       });
     } catch (err: any) {
-      setErrorMsg(err.message || 'Failed to join room. Check the code.');
+      console.error(err);
+      setErrorMsg(err.message || 'Failed to join. Room may not exist or host is offline.');
     } finally {
       setIsConnecting(false);
     }
+  };
+
+  const exitRoom = () => {
+      // Clean up connection
+      socketService.disconnect();
+      // Reset State
+      setGameState({
+        roomId: null,
+        users: [],
+        votes: {},
+        tasks: [],
+        currentTaskId: null,
+        isRevealed: false,
+      });
+      setCurrentUser(null);
+      setRoomInput('');
   };
 
   const submitVote = (value: string | number) => {
@@ -293,7 +311,7 @@ function App() {
             </div>
 
             {errorMsg && (
-                <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-sm text-center">
+                <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-sm text-center animate-in fade-in slide-in-from-top-2">
                     {errorMsg}
                 </div>
             )}
@@ -342,7 +360,7 @@ function App() {
             
             <div className="text-center mt-6">
                 <p className="text-xs text-slate-600">
-                   Uses PeerJS (WebRTC) for serverless P2P connection.
+                   Vercel Ready: Uses namespaced PeerJS & Google STUN servers.
                 </p>
             </div>
           </div>
@@ -386,20 +404,27 @@ function App() {
                    <div className="flex items-center gap-2 bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-800">
                        <span className="text-slate-400 text-xs font-semibold tracking-wider">ROOM</span>
                        <span className="text-white font-mono font-bold tracking-widest">{gameState.roomId}</span>
-                       <button onClick={copyRoomCode} className="text-slate-500 hover:text-white transition-colors ml-1">
+                       <button onClick={copyRoomCode} className="text-slate-500 hover:text-white transition-colors ml-1" title="Copy Code">
                            <Copy className="w-3.5 h-3.5" />
                        </button>
                    </div>
                 </div>
                 
                 <div className="flex items-center gap-3">
-                   <div className="flex flex-col items-end">
+                   <div className="flex flex-col items-end hidden md:flex">
                        <span className="text-white font-medium text-sm">{currentUser.name}</span>
                        <span className="text-xs text-slate-500">{currentUser.isHost ? 'Host' : 'Member'}</span>
                    </div>
                    <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-500 to-violet-500 flex items-center justify-center text-white font-bold text-xs">
                        {currentUser.name.substring(0, 2).toUpperCase()}
                    </div>
+                   <button 
+                        onClick={exitRoom}
+                        className="ml-2 p-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-full transition-colors"
+                        title="Exit Room"
+                   >
+                       <LogOut className="w-4 h-4" />
+                   </button>
                 </div>
             </header>
 
