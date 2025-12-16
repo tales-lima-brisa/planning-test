@@ -1,0 +1,4 @@
+{
+  "name": "AgileVote - Planning Poker",
+  "description": "A real-time multiplayer Planning Poker application for agile teams. Create rooms, manage tasks, and vote on complexity using a simulated WebSocket connection (BroadcastChannel) for seamless cross-tab communication."
+}
