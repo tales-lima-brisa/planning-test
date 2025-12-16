@@ -1,16 +1,21 @@
+
 import React from 'react';
 import { User, GameState } from '../types';
-import { Check, Loader2 } from 'lucide-react';
+import { Check, Loader2, Crown } from 'lucide-react';
 
 interface TableProps {
   gameState: GameState;
   currentUser: User | null;
   onReveal: () => void;
   onReset: () => void;
+  onPromote: (userId: string) => void;
 }
 
-export const Table: React.FC<TableProps> = ({ gameState, currentUser, onReveal, onReset }) => {
+export const Table: React.FC<TableProps> = ({ gameState, currentUser, onReveal, onReset, onPromote }) => {
   const allVoted = gameState.users.length > 0 && gameState.users.every(u => gameState.votes[u.id] !== undefined);
+  
+  // Average calculation is handled in App.tsx logic via finalScore now, 
+  // but for live view we can show it here if revealed.
   const average = React.useMemo(() => {
     if (!gameState.isRevealed) return 0;
     const numericVotes = Object.values(gameState.votes)
@@ -81,15 +86,16 @@ export const Table: React.FC<TableProps> = ({ gameState, currentUser, onReveal, 
           return (
             <div
               key={user.id}
-              className="absolute flex flex-col items-center justify-center w-16 h-20 transition-all duration-500"
+              className="absolute flex flex-col items-center justify-center w-16 h-20 transition-all duration-500 group"
               style={{
                 transform: `translate(${x}px, ${y}px)`,
+                zIndex: 10
               }}
             >
               {/* The Card/Avatar Representation */}
               <div
                 className={`
-                  w-10 h-14 rounded border-2 flex items-center justify-center shadow-lg transition-all duration-500
+                  relative w-10 h-14 rounded border-2 flex items-center justify-center shadow-lg transition-all duration-500
                   ${
                     gameState.isRevealed
                       ? 'bg-slate-100 border-indigo-500 text-slate-900 text-xl font-bold rotate-0'
@@ -99,6 +105,24 @@ export const Table: React.FC<TableProps> = ({ gameState, currentUser, onReveal, 
                   }
                 `}
               >
+                {/* Crown for Host */}
+                {user.isHost && (
+                   <div className="absolute -top-3 -right-2 bg-yellow-500 rounded-full p-0.5 shadow-sm z-20">
+                       <Crown className="w-3 h-3 text-yellow-900" fill="currentColor" />
+                   </div>
+                )}
+
+                {/* Promote Button (Only for Host viewing others) */}
+                {currentUser?.isHost && !user.isHost && (
+                    <button 
+                        onClick={() => onPromote(user.id)}
+                        className="absolute -bottom-2 -right-2 bg-slate-700 hover:bg-yellow-500 text-slate-300 hover:text-yellow-900 rounded-full p-1 opacity-0 group-hover:opacity-100 transition-all scale-75 hover:scale-110 z-20 border border-slate-500"
+                        title="Promote to Host"
+                    >
+                        <Crown className="w-3 h-3" />
+                    </button>
+                )}
+
                 {gameState.isRevealed ? (
                   voteValue
                 ) : hasVoted ? (
@@ -110,7 +134,7 @@ export const Table: React.FC<TableProps> = ({ gameState, currentUser, onReveal, 
               
               <div className="mt-2 text-center">
                 <p className="text-xs font-medium text-slate-300 truncate max-w-[80px] px-1 bg-slate-900/80 rounded">
-                  {user.name} {user.isHost && '👑'}
+                  {user.name}
                 </p>
               </div>
             </div>
