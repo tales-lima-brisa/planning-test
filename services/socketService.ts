@@ -1,4 +1,4 @@
-import { NetworkMessage, User } from '../types';
+import { NetworkMessage } from '../types';
 
 /**
  * SocketService using native WebSockets.
@@ -7,19 +7,27 @@ import { NetworkMessage, User } from '../types';
 class SocketService {
   private ws: WebSocket | null = null;
   private listeners: ((message: NetworkMessage) => void)[] = [];
-  private isConnected: boolean = false;
+  public isConnected: boolean = false;
 
   constructor() {}
 
   /**
-   * Connect to the WebSocket server at the given URL
+   * Connect to the WebSocket server at the given URL.
+   * Note: This does NOT automatically send a JOIN message anymore.
+   * You must send JOIN manually after connection.
    */
-  public async connect(serverUrl: string, roomId: string, user: User): Promise<boolean> {
+  public async connect(serverUrl: string): Promise<boolean> {
+    // Clean up existing connection if any
+    this.disconnect();
+
     // Ensure URL has protocol
     let url = serverUrl;
+    
+    // CORRECTION FOR HTTPS/PRODUCTION:
+    // If no protocol is provided, default to wss:// (Secure) instead of ws://
+    // This fixes the "insecure WebSocket connection" error on Vercel/HTTPS.
     if (!url.startsWith('ws://') && !url.startsWith('wss://')) {
-        // Default to unsecured ws:// if likely local IP, otherwise could guess
-        url = `ws://${url}`;
+        url = `wss://${url}`;
     }
 
     return new Promise((resolve, reject) => {
@@ -30,15 +38,6 @@ class SocketService {
         this.ws.onopen = () => {
           console.log('WebSocket Connected');
           this.isConnected = true;
-          
-          // Immediately send JOIN message to register this socket to the room on server
-          this.send({
-              type: 'JOIN',
-              roomId: roomId,
-              payload: user,
-              senderId: user.id
-          });
-
           resolve(true);
         };
 
@@ -53,7 +52,8 @@ class SocketService {
 
         this.ws.onerror = (err) => {
           console.error('WebSocket Error:', err);
-          reject(new Error('Failed to connect to server. Check IP and Port.'));
+          this.isConnected = false;
+          reject(new Error('Failed to connect. The server might be asleep (Railway) or blocked by firewall.'));
         };
 
         this.ws.onclose = () => {
@@ -74,17 +74,10 @@ class SocketService {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(message));
       
-      // Since WebSocket usually sends to *server* which broadcasts to *others*,
-      // we need to verify if we should notify local listeners ourselves.
-      // In this app pattern, we usually update local state immediately (optimistic) 
-      // OR we listen for the echo. 
-      // The `server.js` implementation I provided broadcasts to OTHERS.
-      // So we must notify ourselves here to see our own actions if the UI doesn't handle it optimistically.
-      // NOTE: App.tsx handles VOTE optimistically, but typically not others like JOIN/RESET.
-      // Let's notify listeners locally to ensure consistent state.
+      // Notify local listeners (Optimistic UI updates)
       this.notifyListeners(message);
     } else {
-      console.warn('WebSocket not connected, cannot send message');
+      console.warn('WebSocket not connected, cannot send message:', message.type);
     }
   }
 

@@ -1,4 +1,5 @@
 {
   "name": "AgileVote - Planning Poker",
-  "description": "A real-time multiplayer Planning Poker application using WebSockets. Requires a running WebSocket server."
+  "description": "A real-time multiplayer Planning Poker application using WebSockets. Requires a running WebSocket server.",
+  "requestFramePermissions": []
 }

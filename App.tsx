@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Users, LogIn, ArrowRight, ClipboardList, Copy, Link as LinkIcon, Menu, X, Loader2, LogOut, Server } from 'lucide-react';
 import { socketService } from './services/socketService';
 import { GameState, User, NetworkMessage, FIBONACCI_SEQ, Task } from './types';
@@ -9,12 +9,13 @@ import { TaskList } from './components/TaskList';
 // Helper to generate IDs
 const uuid = () => Math.random().toString(36).substring(2, 9);
 
+// HARDCODED PRODUCTION SERVER
+const SERVER_URL = 'function-bun-production-2fae.up.railway.app';
+
 function App() {
   // Local UI State
   const [userName, setUserName] = useState('');
   const [roomInput, setRoomInput] = useState('');
-  // Default to localhost for development, user can change to IP
-  const [serverUrl, setServerUrl] = useState('localhost:8080'); 
   const [isConnecting, setIsConnecting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -30,43 +31,68 @@ function App() {
     isRevealed: false,
   });
 
+  // Keep a ref of game state for event handlers to access latest state without triggering re-renders/stale closures
+  const gameStateRef = useRef(gameState);
+  useEffect(() => { gameStateRef.current = gameState; }, [gameState]);
+
   // Handle incoming network messages
   const handleMessage = useCallback((msg: NetworkMessage) => {
-    // Only process messages for this room
-    if (gameState.roomId && msg.roomId !== gameState.roomId && msg.type !== 'SYNC_RESPONSE') return;
+    // Guard: Ignore messages if we aren't in a room yet (unless it's a join ack/local echo)
+    // Also ignore messages for other rooms
+    if (gameStateRef.current.roomId && msg.roomId !== gameStateRef.current.roomId) return;
 
     switch (msg.type) {
-      case 'JOIN':
+      case 'JOIN': {
+        const newUser = msg.payload;
+        console.log('[App] User Joined:', newUser.name);
+
+        // 1. Update State
         setGameState(prev => {
-          if (prev.users.some(u => u.id === msg.payload.id)) return prev;
-          const newState = { ...prev, users: [...prev.users, msg.payload] };
-          
-          // If I am the host, I need to send the current full state to the new joiner
-          if (currentUser?.isHost) {
-             socketService.send({
-               type: 'SYNC_RESPONSE',
-               roomId: msg.roomId, // Send specifically to the room channel
-               senderId: currentUser.id,
-               payload: newState // Send the updated state
-             });
-          }
-          return newState;
+          if (prev.users.some(u => u.id === newUser.id)) return prev;
+          return { ...prev, users: [...prev.users, newUser] };
         });
+
+        // 2. Host Logic: Sync State to New User
+        // Check if WE are the host and the joined user is NOT us
+        if (currentUser?.isHost && newUser.id !== currentUser.id) {
+            console.log('[App] I am Host, sending SYNC to:', newUser.name);
+            
+            // Construct the state to send. Note: We use the REF to get current state,
+            // but we must add the new user manually to the payload because state update is async.
+            const currentUsers = gameStateRef.current.users;
+            const updatedUsers = currentUsers.some(u => u.id === newUser.id) 
+                ? currentUsers 
+                : [...currentUsers, newUser];
+
+            const statePayload = {
+                ...gameStateRef.current,
+                users: updatedUsers
+            };
+
+            socketService.send({
+                type: 'SYNC_RESPONSE',
+                roomId: msg.roomId,
+                senderId: currentUser.id,
+                payload: statePayload
+            });
+        }
         break;
+      }
 
       case 'SYNC_REQUEST':
         if (currentUser?.isHost) {
+          console.log('[App] Received Sync Request, sending data...');
           socketService.send({
             type: 'SYNC_RESPONSE',
             roomId: msg.roomId,
             senderId: currentUser.id,
-            payload: gameState
+            payload: gameStateRef.current
           });
         }
         break;
 
       case 'SYNC_RESPONSE':
-        // Only accept sync if we are just joining or out of sync
+        console.log('[App] Received SYNC data');
         setGameState(msg.payload);
         break;
 
@@ -87,15 +113,17 @@ function App() {
             if (prev.currentTaskId) {
                // Calculate consensus score (most frequent)
                const votes = Object.values(prev.votes);
-               const score = votes.sort((a,b) => 
-                  votes.filter(v => v===a).length - votes.filter(v => v===b).length
-               ).pop();
-
-               updatedTasks = updatedTasks.map(t => 
-                 t.id === prev.currentTaskId 
-                   ? { ...t, status: 'completed', finalScore: score } 
-                   : t
-               );
+               if (votes.length > 0) {
+                   const score = votes.sort((a,b) => 
+                      votes.filter(v => v===a).length - votes.filter(v => v===b).length
+                   ).pop();
+    
+                   updatedTasks = updatedTasks.map(t => 
+                     t.id === prev.currentTaskId 
+                       ? { ...t, status: 'completed', finalScore: score } 
+                       : t
+                   );
+               }
             }
 
             return {
@@ -124,7 +152,7 @@ function App() {
         }));
         break;
     }
-  }, [gameState, currentUser]);
+  }, [currentUser]); // Dependencies reduced since we use Ref for gameState
 
   useEffect(() => {
     const unsubscribe = socketService.subscribe(handleMessage);
@@ -133,37 +161,49 @@ function App() {
 
   // Actions
   const createRoom = async () => {
-    if (!userName.trim() || !serverUrl.trim()) return;
+    if (!userName.trim()) return;
     setIsConnecting(true);
     setErrorMsg(null);
 
-    const newRoomId = uuid().substring(0, 5).toUpperCase(); // Short code
+    const newRoomId = uuid().substring(0, 5).toUpperCase();
     const newUser: User = { id: uuid(), name: userName, isHost: true };
 
     try {
-      await socketService.connect(serverUrl, newRoomId, newUser);
+      // 1. Connect
+      await socketService.connect(SERVER_URL);
       
+      // 2. Set Local State
       setCurrentUser(newUser);
       const initialTasks: Task[] = [{id: uuid(), title: 'First User Story', status: 'active'}];
-      
-      setGameState({
+      const initialState: GameState = {
         roomId: newRoomId,
         users: [newUser],
         votes: {},
         tasks: initialTasks,
         currentTaskId: initialTasks[0].id,
         isRevealed: false
+      };
+      setGameState(initialState);
+      
+      // 3. Register with Server (Send JOIN)
+      // IMPORTANT: Host must send JOIN so server maps socket to room
+      socketService.send({
+          type: 'JOIN',
+          roomId: newRoomId,
+          payload: newUser,
+          senderId: newUser.id
       });
+
     } catch (err: any) {
       console.error(err);
-      setErrorMsg(err.message || 'Failed to connect to server.');
+      setErrorMsg(err.message || 'Connection failed. Waking up server...');
     } finally {
       setIsConnecting(false);
     }
   };
 
   const joinRoom = async () => {
-    if (!userName.trim() || !roomInput.trim() || !serverUrl.trim()) return;
+    if (!userName.trim() || !roomInput.trim()) return;
     setIsConnecting(true);
     setErrorMsg(null);
 
@@ -171,31 +211,41 @@ function App() {
     const newUser: User = { id: uuid(), name: userName, isHost: false };
 
     try {
-      await socketService.connect(serverUrl, roomIdToJoin, newUser);
+      // 1. Connect
+      await socketService.connect(SERVER_URL);
       
+      // 2. Set Local State
       setCurrentUser(newUser);
-      // Optimistically set room ID
       setGameState(prev => ({ ...prev, roomId: roomIdToJoin }));
       
-      // Ask for current state
+      // 3. Send JOIN (Server broadcasts this to Host)
       socketService.send({
-        type: 'SYNC_REQUEST',
+        type: 'JOIN',
         roomId: roomIdToJoin,
-        payload: {},
+        payload: newUser,
         senderId: newUser.id
       });
+      
+      // 4. Request State (Just in case JOIN didn't trigger Host sync automatically)
+      setTimeout(() => {
+          socketService.send({
+            type: 'SYNC_REQUEST',
+            roomId: roomIdToJoin,
+            payload: {},
+            senderId: newUser.id
+          });
+      }, 500);
+
     } catch (err: any) {
       console.error(err);
-      setErrorMsg(err.message || 'Failed to connect. Check Server IP.');
+      setErrorMsg(err.message || 'Connection failed. Waking up server...');
     } finally {
       setIsConnecting(false);
     }
   };
 
   const exitRoom = () => {
-      // Clean up connection
       socketService.disconnect();
-      // Reset State
       setGameState({
         roomId: null,
         users: [],
@@ -210,14 +260,6 @@ function App() {
 
   const submitVote = (value: string | number) => {
     if (!currentUser || !gameState.roomId) return;
-    // Broadcast only (local state updated via echo from socketService.send)
-    // Actually, socketService.send now updates local listeners too, 
-    // but React state update here is safe for responsiveness.
-    setGameState(prev => ({
-        ...prev,
-        votes: { ...prev.votes, [currentUser.id]: value }
-    }));
-    
     socketService.send({
         type: 'VOTE',
         roomId: gameState.roomId,
@@ -291,24 +333,11 @@ function App() {
             </div>
           </div>
           <h1 className="text-3xl font-bold text-center text-white mb-2">AgileVote</h1>
-          <p className="text-slate-400 text-center mb-8">WebSocket Planning Poker</p>
+          <p className="text-slate-400 text-center mb-8">Planning Poker Online</p>
 
           <div className="space-y-4">
-            <div>
-                <label className="block text-sm font-medium text-slate-400 mb-1">Server Address</label>
-                <div className="relative">
-                    <Server className="absolute left-3 top-3 w-5 h-5 text-slate-600" />
-                    <input 
-                        type="text" 
-                        value={serverUrl}
-                        onChange={(e) => setServerUrl(e.target.value)}
-                        disabled={isConnecting}
-                        className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-10 pr-4 py-3 text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition disabled:opacity-50 font-mono text-sm"
-                        placeholder="e.g. 192.168.1.5:8080"
-                    />
-                </div>
-                <p className="text-[10px] text-slate-600 mt-1">IP of the machine running "node server.js"</p>
-            </div>
+            
+            {/* Input removed: Server URL is now hardcoded */}
 
             <div>
               <label className="block text-sm font-medium text-slate-400 mb-1">Your Name</label>
@@ -332,7 +361,7 @@ function App() {
                <div className="grid grid-cols-2 gap-4">
                   <button 
                     onClick={createRoom}
-                    disabled={!userName || !serverUrl || isConnecting}
+                    disabled={!userName || isConnecting}
                     className="flex flex-col items-center justify-center p-4 rounded-xl border-2 border-slate-700 hover:border-indigo-500 hover:bg-slate-800 transition-all group disabled:opacity-50 disabled:cursor-not-allowed relative"
                   >
                     {isConnecting && !roomInput ? (
@@ -357,7 +386,7 @@ function App() {
                     />
                     <button 
                         onClick={joinRoom}
-                        disabled={!userName || !roomInput || !serverUrl || isConnecting}
+                        disabled={!userName || !roomInput || isConnecting}
                         className="w-full bg-slate-800 hover:bg-indigo-600 text-white py-2 rounded-lg font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
                     >
                         {isConnecting && roomInput ? (
@@ -368,6 +397,12 @@ function App() {
                     </button>
                   </div>
                </div>
+            </div>
+            
+            <div className="text-center mt-4">
+                <p className="text-[10px] text-slate-600">
+                    Connected to Railway Server
+                </p>
             </div>
           </div>
         </div>
@@ -419,7 +454,7 @@ function App() {
                 <div className="flex items-center gap-3">
                    <div className="flex flex-col items-end hidden md:flex">
                        <span className="text-white font-medium text-sm">{currentUser.name}</span>
-                       <span className="text-xs text-slate-500 text-right">{serverUrl}</span>
+                       <span className="text-xs text-slate-500 text-right">Online</span>
                    </div>
                    <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-500 to-violet-500 flex items-center justify-center text-white font-bold text-xs">
                        {currentUser.name.substring(0, 2).toUpperCase()}
