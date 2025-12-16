@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Users, LogIn, ArrowRight, ClipboardList, Copy, Link as LinkIcon, Menu, X } from 'lucide-react';
+import { Users, LogIn, ArrowRight, ClipboardList, Copy, Link as LinkIcon, Menu, X, Loader2 } from 'lucide-react';
 import { socketService } from './services/socketService';
 import { GameState, User, NetworkMessage, FIBONACCI_SEQ, Task } from './types';
 import { Card } from './components/Card';
@@ -13,6 +13,8 @@ function App() {
   // Local UI State
   const [userName, setUserName] = useState('');
   const [roomInput, setRoomInput] = useState('');
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [showSidebar, setShowSidebar] = useState(false);
   
@@ -63,11 +65,7 @@ function App() {
 
       case 'SYNC_RESPONSE':
         // Only accept sync if we are just joining or out of sync
-        // In a real app, you'd check timestamps or versions. 
-        // Here we just accept it if the room matches.
-        if (msg.roomId === gameState.roomId || (!gameState.roomId && msg.payload.roomId === roomInput)) {
-           setGameState(msg.payload);
-        }
+        setGameState(msg.payload);
         break;
 
       case 'VOTE':
@@ -83,11 +81,9 @@ function App() {
 
       case 'RESET':
         setGameState(prev => {
-            // If there was a current task, mark it as completed with the score (average or most voted)
-            // Simplified: just mark active task as done
             let updatedTasks = [...prev.tasks];
             if (prev.currentTaskId) {
-               // Calculate consensus score (simplified: most frequent)
+               // Calculate consensus score (most frequent)
                const votes = Object.values(prev.votes);
                const score = votes.sort((a,b) => 
                   votes.filter(v => v===a).length - votes.filter(v => v===b).length
@@ -121,13 +117,12 @@ function App() {
         setGameState(prev => ({
           ...prev,
           currentTaskId: msg.payload,
-          // When changing tasks, usually we want to reset votes too, but let's keep it manual
           votes: {},
           isRevealed: false
         }));
         break;
     }
-  }, [gameState, currentUser, roomInput]);
+  }, [gameState, currentUser]);
 
   useEffect(() => {
     const unsubscribe = socketService.subscribe(handleMessage);
@@ -135,52 +130,70 @@ function App() {
   }, [handleMessage]);
 
   // Actions
-  const createRoom = () => {
+  const createRoom = async () => {
     if (!userName.trim()) return;
+    setIsConnecting(true);
+    setErrorMsg(null);
+
     const newRoomId = uuid().substring(0, 5).toUpperCase(); // Short code
     const newUser: User = { id: uuid(), name: userName, isHost: true };
-    
-    setCurrentUser(newUser);
-    const initialTasks: Task[] = [{id: uuid(), title: 'First User Story', status: 'active'}];
-    
-    setGameState({
-      roomId: newRoomId,
-      users: [newUser],
-      votes: {},
-      tasks: initialTasks,
-      currentTaskId: initialTasks[0].id,
-      isRevealed: false
-    });
 
-    socketService.connect(newRoomId, newUser.id);
+    try {
+      await socketService.createRoom(newRoomId);
+      
+      setCurrentUser(newUser);
+      const initialTasks: Task[] = [{id: uuid(), title: 'First User Story', status: 'active'}];
+      
+      setGameState({
+        roomId: newRoomId,
+        users: [newUser],
+        votes: {},
+        tasks: initialTasks,
+        currentTaskId: initialTasks[0].id,
+        isRevealed: false
+      });
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to create room. Try again.');
+    } finally {
+      setIsConnecting(false);
+    }
   };
 
-  const joinRoom = () => {
+  const joinRoom = async () => {
     if (!userName.trim() || !roomInput.trim()) return;
+    setIsConnecting(true);
+    setErrorMsg(null);
+
     const roomIdToJoin = roomInput.toUpperCase();
     const newUser: User = { id: uuid(), name: userName, isHost: false };
-    
-    setCurrentUser(newUser);
-    // Optimistically set room ID so we can receive sync
-    setGameState(prev => ({ ...prev, roomId: roomIdToJoin }));
 
-    socketService.connect(roomIdToJoin, newUser.id);
-    
-    // Announce join
-    socketService.send({
-      type: 'JOIN',
-      roomId: roomIdToJoin,
-      payload: newUser,
-      senderId: newUser.id
-    });
-    
-    // Ask for current state
-    socketService.send({
-      type: 'SYNC_REQUEST',
-      roomId: roomIdToJoin,
-      payload: {},
-      senderId: newUser.id
-    });
+    try {
+      await socketService.joinRoom(roomIdToJoin);
+      
+      setCurrentUser(newUser);
+      // Optimistically set room ID
+      setGameState(prev => ({ ...prev, roomId: roomIdToJoin }));
+      
+      // Announce join
+      socketService.send({
+        type: 'JOIN',
+        roomId: roomIdToJoin,
+        payload: newUser,
+        senderId: newUser.id
+      });
+      
+      // Ask for current state
+      socketService.send({
+        type: 'SYNC_REQUEST',
+        roomId: roomIdToJoin,
+        payload: {},
+        senderId: newUser.id
+      });
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to join room. Check the code.');
+    } finally {
+      setIsConnecting(false);
+    }
   };
 
   const submitVote = (value: string | number) => {
@@ -273,20 +286,33 @@ function App() {
                 type="text" 
                 value={userName}
                 onChange={(e) => setUserName(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition"
+                disabled={isConnecting}
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition disabled:opacity-50"
                 placeholder="e.g. John Doe"
               />
             </div>
+
+            {errorMsg && (
+                <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-sm text-center">
+                    {errorMsg}
+                </div>
+            )}
 
             <div className="pt-4 border-t border-slate-800">
                <div className="grid grid-cols-2 gap-4">
                   <button 
                     onClick={createRoom}
-                    disabled={!userName}
-                    className="flex flex-col items-center justify-center p-4 rounded-xl border-2 border-slate-700 hover:border-indigo-500 hover:bg-slate-800 transition-all group disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={!userName || isConnecting}
+                    className="flex flex-col items-center justify-center p-4 rounded-xl border-2 border-slate-700 hover:border-indigo-500 hover:bg-slate-800 transition-all group disabled:opacity-50 disabled:cursor-not-allowed relative"
                   >
-                    <span className="text-lg font-bold text-white mb-1 group-hover:text-indigo-400">Create Room</span>
-                    <span className="text-xs text-slate-500">Start a new session</span>
+                    {isConnecting && !roomInput ? (
+                        <Loader2 className="w-6 h-6 text-indigo-500 animate-spin" />
+                    ) : (
+                        <>
+                            <span className="text-lg font-bold text-white mb-1 group-hover:text-indigo-400">Create Room</span>
+                            <span className="text-xs text-slate-500">Start a new session</span>
+                        </>
+                    )}
                   </button>
 
                   <div className="space-y-2">
@@ -295,15 +321,20 @@ function App() {
                         value={roomInput}
                         onChange={(e) => setRoomInput(e.target.value.toUpperCase())}
                         maxLength={6}
-                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-center text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none uppercase tracking-widest"
+                        disabled={isConnecting}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-center text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none uppercase tracking-widest disabled:opacity-50"
                         placeholder="CODE"
                     />
                     <button 
                         onClick={joinRoom}
-                        disabled={!userName || !roomInput}
+                        disabled={!userName || !roomInput || isConnecting}
                         className="w-full bg-slate-800 hover:bg-indigo-600 text-white py-2 rounded-lg font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
                     >
-                        Join <ArrowRight className="w-4 h-4" />
+                        {isConnecting && roomInput ? (
+                             <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                            <>Join <ArrowRight className="w-4 h-4" /></>
+                        )}
                     </button>
                   </div>
                </div>
@@ -311,7 +342,7 @@ function App() {
             
             <div className="text-center mt-6">
                 <p className="text-xs text-slate-600">
-                   Note: This demo uses BroadcastChannel API.<br/>Open multiple tabs to simulate players.
+                   Uses PeerJS (WebRTC) for serverless P2P connection.
                 </p>
             </div>
           </div>
