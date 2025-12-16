@@ -1,3 +1,4 @@
+
 export interface User {
   id: string;
   name: string;
@@ -33,8 +34,11 @@ export type MessageType =
   | 'REVEAL' 
   | 'RESET' 
   | 'ADD_TASK' 
+  | 'DELETE_TASK'
+  | 'UPDATE_TASK'
   | 'SELECT_TASK'
-  | 'UPDATE_TASK_SCORE';
+  | 'USER_LEFT'
+  | 'PROMOTE_USER';
 
 export interface NetworkMessage {
   type: MessageType;
