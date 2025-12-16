@@ -1,155 +1,65 @@
-import { Peer } from 'peerjs';
-import type { DataConnection } from 'peerjs';
-import { NetworkMessage } from '../types';
-
-// Prefix to avoid collisions on the public PeerJS server
-const APP_PREFIX = 'agilevote-prod-v1-';
+import { NetworkMessage, User } from '../types';
 
 /**
- * SocketService using PeerJS (WebRTC).
- * 
- * IMPROVEMENTS FOR VERCEL/ONLINE:
- * 1. Namespaced IDs: Room Code "ABC" becomes Peer ID "agilevote-prod-v1-ABC".
- * 2. Robust ICE Servers: Added multiple STUN servers to help connect across different networks (NAT).
+ * SocketService using native WebSockets.
+ * Connects to a specific IP/URL provided by the user.
  */
 class SocketService {
-  private peer: Peer | null = null;
-  private hostConn: DataConnection | null = null;
-  private clientConns: Map<string, DataConnection> = new Map();
+  private ws: WebSocket | null = null;
   private listeners: ((message: NetworkMessage) => void)[] = [];
-  
-  private isHostUser: boolean = false;
+  private isConnected: boolean = false;
 
   constructor() {}
 
-  private getPeerConfig() {
-    return {
-      debug: 1, // 0: None, 1: Errors, 2: Warnings, 3: All
-      config: {
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:stun1.l.google.com:19302' },
-          { urls: 'stun:stun2.l.google.com:19302' },
-          { urls: 'stun:stun3.l.google.com:19302' },
-          { urls: 'stun:stun4.l.google.com:19302' },
-        ]
-      }
-    };
-  }
-
   /**
-   * Initialize as HOST.
+   * Connect to the WebSocket server at the given URL
    */
-  public async createRoom(roomId: string): Promise<boolean> {
-    this.isHostUser = true;
-    
-    // Close existing peer if any
-    if (this.peer) {
-        this.peer.destroy();
+  public async connect(serverUrl: string, roomId: string, user: User): Promise<boolean> {
+    // Ensure URL has protocol
+    let url = serverUrl;
+    if (!url.startsWith('ws://') && !url.startsWith('wss://')) {
+        // Default to unsecured ws:// if likely local IP, otherwise could guess
+        url = `ws://${url}`;
     }
-
-    const uniquePeerId = `${APP_PREFIX}${roomId}`;
-    console.log(`[Host] Initializing with ID: ${uniquePeerId}`);
 
     return new Promise((resolve, reject) => {
       try {
-        this.peer = new Peer(uniquePeerId, this.getPeerConfig());
+        console.log(`Connecting to ${url}...`);
+        this.ws = new WebSocket(url);
 
-        this.peer.on('open', (id) => {
-          console.log('[Host] Peer Server Open. ID:', id);
+        this.ws.onopen = () => {
+          console.log('WebSocket Connected');
+          this.isConnected = true;
+          
+          // Immediately send JOIN message to register this socket to the room on server
+          this.send({
+              type: 'JOIN',
+              roomId: roomId,
+              payload: user,
+              senderId: user.id
+          });
+
           resolve(true);
-        });
+        };
 
-        this.peer.on('error', (err: any) => {
-          console.error('[Host] Peer error:', err);
-          if (err.type === 'unavailable-id') {
-            reject(new Error(`Room code ${roomId} is currently in use. Please try another.`));
-          } else if (err.type === 'peer-unavailable') {
-             reject(new Error('Peer unavailable. Check your internet connection.'));
-          } else {
-            reject(new Error(`Connection error: ${err.type}`));
+        this.ws.onmessage = (event) => {
+          try {
+            const message = JSON.parse(event.data) as NetworkMessage;
+            this.notifyListeners(message);
+          } catch (e) {
+            console.error('Failed to parse WebSocket message', e);
           }
-        });
+        };
 
-        this.peer.on('connection', (conn) => {
-          this.handleIncomingConnection(conn);
-        });
+        this.ws.onerror = (err) => {
+          console.error('WebSocket Error:', err);
+          reject(new Error('Failed to connect to server. Check IP and Port.'));
+        };
 
-        this.peer.on('disconnected', () => {
-             console.warn('[Host] Disconnected from signaling server. Attempting reconnect...');
-             this.peer?.reconnect();
-        });
-
-      } catch (e) {
-        reject(e);
-      }
-    });
-  }
-
-  /**
-   * Initialize as CLIENT.
-   */
-  public async joinRoom(roomId: string): Promise<boolean> {
-    this.isHostUser = false;
-
-    // Close existing peer if any
-    if (this.peer) {
-        this.peer.destroy();
-    }
-
-    console.log(`[Client] Connecting to Room Code: ${roomId}`);
-
-    return new Promise((resolve, reject) => {
-      try {
-        // Client gets a random ID (let PeerJS assign it)
-        this.peer = new Peer(undefined, this.getPeerConfig());
-
-        this.peer.on('open', (id) => {
-          console.log('[Client] My Peer ID:', id);
-          if (!this.peer) return;
-
-          const hostPeerId = `${APP_PREFIX}${roomId}`;
-          console.log('[Client] Attempting connection to host:', hostPeerId);
-
-          // Connect to Host
-          const conn = this.peer.connect(hostPeerId, { 
-              reliable: true,
-              serialization: 'json'
-          });
-
-          conn.on('open', () => {
-            console.log('[Client] Connection established with Host!');
-            this.hostConn = conn;
-            this.setupDataListener(conn);
-            resolve(true);
-          });
-
-          conn.on('error', (err) => {
-            console.error('[Client] Connection error:', err);
-            reject(err);
-          });
-          
-          conn.on('close', () => {
-              console.warn('[Client] Connection closed by host');
-          });
-          
-          // Timeout handling
-          setTimeout(() => {
-            if (!conn.open) {
-                // If not open after 10s, it's likely a NAT issue or Room doesn't exist
-                if (this.hostConn !== conn) {
-                     // Check if we actually connected in the meantime
-                     return; 
-                }
-                reject(new Error('Connection timed out. The room might not exist or the host is behind a strict firewall.'));
-            }
-          }, 10000);
-        });
-
-        this.peer.on('error', (err: any) => {
-          console.error('[Client] Peer Error:', err);
-          reject(new Error(`Peer Error: ${err.type}`));
-        });
+        this.ws.onclose = () => {
+          console.log('WebSocket Closed');
+          this.isConnected = false;
+        };
 
       } catch (e) {
         reject(e);
@@ -158,23 +68,23 @@ class SocketService {
   }
 
   /**
-   * Send a message to the network.
+   * Send a message to the server
    */
   public send(message: NetworkMessage) {
-    // 1. Process locally (optimistic UI)
-    this.notifyListeners(message);
-
-    // 2. Route message based on role
-    if (this.isHostUser) {
-      // I am Host: Broadcast to all clients
-      this.broadcastToClients(message);
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(message));
+      
+      // Since WebSocket usually sends to *server* which broadcasts to *others*,
+      // we need to verify if we should notify local listeners ourselves.
+      // In this app pattern, we usually update local state immediately (optimistic) 
+      // OR we listen for the echo. 
+      // The `server.js` implementation I provided broadcasts to OTHERS.
+      // So we must notify ourselves here to see our own actions if the UI doesn't handle it optimistically.
+      // NOTE: App.tsx handles VOTE optimistically, but typically not others like JOIN/RESET.
+      // Let's notify listeners locally to ensure consistent state.
+      this.notifyListeners(message);
     } else {
-      // I am Client: Send to Host
-      if (this.hostConn && this.hostConn.open) {
-        this.hostConn.send(message);
-      } else {
-          console.warn('Cannot send message, not connected to host');
-      }
+      console.warn('WebSocket not connected, cannot send message');
     }
   }
 
@@ -186,62 +96,15 @@ class SocketService {
   }
 
   public disconnect() {
-      if (this.peer) {
-          this.peer.destroy();
-          this.peer = null;
-      }
-      this.hostConn = null;
-      this.clientConns.clear();
-      this.isHostUser = false;
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
+    }
+    this.isConnected = false;
   }
-
-  // --- Private Helpers ---
 
   private notifyListeners(message: NetworkMessage) {
     this.listeners.forEach(listener => listener(message));
-  }
-
-  private handleIncomingConnection(conn: DataConnection) {
-    console.log('[Host] New connection request from', conn.peer);
-    
-    conn.on('open', () => {
-      console.log('[Host] Connection opened for', conn.peer);
-      this.clientConns.set(conn.peer, conn);
-    });
-
-    conn.on('close', () => {
-      console.log('[Host] Connection closed for', conn.peer);
-      this.clientConns.delete(conn.peer);
-    });
-
-    conn.on('error', (err) => {
-        console.error('[Host] Connection error for peer', conn.peer, err);
-        this.clientConns.delete(conn.peer);
-    });
-
-    this.setupDataListener(conn);
-  }
-
-  private setupDataListener(conn: DataConnection) {
-    conn.on('data', (data: any) => {
-      const message = data as NetworkMessage;
-      
-      // 1. Update self
-      this.notifyListeners(message);
-
-      // 2. If I am Host, I need to relay this message to everyone else
-      if (this.isHostUser) {
-        this.broadcastToClients(message, conn.peer);
-      }
-    });
-  }
-
-  private broadcastToClients(message: NetworkMessage, excludePeerId?: string) {
-    this.clientConns.forEach((conn, peerId) => {
-      if (peerId !== excludePeerId && conn.open) {
-        conn.send(message);
-      }
-    });
   }
 }
 
