@@ -22,11 +22,11 @@ import { TaskList } from "./components/TaskList";
 const uuid = () => Math.random().toString(36).substring(2, 9);
 
 // HARDCODED PRODUCTION SERVER
-const SERVER_URL = "https://planning-test-vf5a.onrender.com";
+const SERVER_URL = "planning-test-vf5a.onrender.com";
 
 // Helper for finding closest Fibonacci
 const getClosestFibonacci = (num: number): string | number => {
-  // Filter numeric values from the sequence
+  // Filter numeric values from the sequensce
   const fibNums = FIBONACCI_SEQ.map((v) => parseInt(v)).filter(
     (n) => !isNaN(n),
   );
