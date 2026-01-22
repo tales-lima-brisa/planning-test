@@ -22,13 +22,13 @@ import { TaskList } from "./components/TaskList";
 const uuid = () => Math.random().toString(36).substring(2, 9);
 
 // HARDCODED PRODUCTION SERVER
-const SERVER_URL = "function-bun-production-2fae.up.railway.app";
+const SERVER_URL = "https://planning-test-vf5a.onrender.com";
 
 // Helper for finding closest Fibonacci
 const getClosestFibonacci = (num: number): string | number => {
   // Filter numeric values from the sequence
   const fibNums = FIBONACCI_SEQ.map((v) => parseInt(v)).filter(
-    (n) => !isNaN(n)
+    (n) => !isNaN(n),
   );
 
   // Find closest
@@ -125,14 +125,14 @@ function App() {
           if (leavingUser?.isHost && remainingUsers.length > 0) {
             // Promote the first user in the list (usually the oldest connection)
             updatedUsers = remainingUsers.map((u, index) =>
-              index === 0 ? { ...u, isHost: true } : u
+              index === 0 ? { ...u, isHost: true } : u,
             );
 
             // Check if *I* became the host
             if (updatedUsers[0].id === currentUserRef.current?.id) {
               console.log("[App] I have become the Host via succession");
               setCurrentUser((prevUser) =>
-                prevUser ? { ...prevUser, isHost: true } : null
+                prevUser ? { ...prevUser, isHost: true } : null,
               );
             }
           }
@@ -141,7 +141,7 @@ function App() {
             ...prev,
             users: updatedUsers,
             votes: Object.fromEntries(
-              Object.entries(prev.votes).filter(([uid]) => uid !== leftUserId)
+              Object.entries(prev.votes).filter(([uid]) => uid !== leftUserId),
             ),
           };
         });
@@ -185,7 +185,7 @@ function App() {
         // Ensure my currentUser isHost flag is consistent with the synced state
         // If I am in the user list, sync my host status
         const meInState = msg.payload.users.find(
-          (u: User) => u.id === currentUserRef.current?.id
+          (u: User) => u.id === currentUserRef.current?.id,
         );
         if (meInState && currentUserRef.current) {
           if (meInState.isHost !== currentUserRef.current.isHost) {
@@ -232,7 +232,7 @@ function App() {
                   .sort(
                     (a, b) =>
                       votes.filter((v) => v === a).length -
-                      votes.filter((v) => v === b).length
+                      votes.filter((v) => v === b).length,
                   )
                   .pop() as string | number | undefined;
               }
@@ -241,7 +241,7 @@ function App() {
             updatedTasks = updatedTasks.map((t) =>
               t.id === prev.currentTaskId
                 ? { ...t, status: "completed", finalScore: finalScore }
-                : t
+                : t,
             );
           }
 
@@ -275,7 +275,7 @@ function App() {
         setGameState((prev) => ({
           ...prev,
           tasks: prev.tasks.map((t) =>
-            t.id === msg.payload.id ? { ...t, title: msg.payload.title } : t
+            t.id === msg.payload.id ? { ...t, title: msg.payload.title } : t,
           ),
         }));
         break;
@@ -370,7 +370,7 @@ function App() {
           setCurrentUser((prev) => (prev ? { ...prev, isHost: true } : null));
           setGameState((prev) => {
             const updatedMe = prev.users.map((u) =>
-              u.id === newUser.id ? { ...u, isHost: true } : u
+              u.id === newUser.id ? { ...u, isHost: true } : u,
             );
             return { ...prev, users: updatedMe };
           });
@@ -598,7 +598,7 @@ function App() {
 
   // RENDER: Game Room
   const activeTask = gameState.tasks.find(
-    (t) => t.id === gameState.currentTaskId
+    (t) => t.id === gameState.currentTaskId,
   );
 
   return (
