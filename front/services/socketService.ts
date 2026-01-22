@@ -27,7 +27,7 @@ class SocketService {
     // If no protocol is provided, default to wss:// (Secure) instead of ws://
     // This fixes the "insecure WebSocket connection" error on Vercel/HTTPS.
     if (!url.startsWith("ws://") && !url.startsWith("wss://")) {
-      url = `wss://${url}`;
+      url = `ws://${url}`;
     }
 
     return new Promise((resolve, reject) => {
