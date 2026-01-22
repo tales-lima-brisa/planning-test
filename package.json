@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "start": "node server.cjs",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview"
@@ -11,7 +12,8 @@
   "dependencies": {
     "lucide-react": "^0.561.0",
     "react-dom": "^19.2.3",
-    "react": "^19.2.3"
+    "react": "^19.2.3",
+    "ws": "^8.x"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
