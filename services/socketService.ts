@@ -1,4 +1,4 @@
-import { NetworkMessage } from '../types';
+import { NetworkMessage } from "../types";
 
 /**
  * SocketService using native WebSockets.
@@ -22,12 +22,12 @@ class SocketService {
 
     // Ensure URL has protocol
     let url = serverUrl;
-    
+
     // CORRECTION FOR HTTPS/PRODUCTION:
     // If no protocol is provided, default to wss:// (Secure) instead of ws://
     // This fixes the "insecure WebSocket connection" error on Vercel/HTTPS.
-    if (!url.startsWith('ws://') && !url.startsWith('wss://')) {
-        url = `wss://${url}`;
+    if (!url.startsWith("ws://") && !url.startsWith("wss://")) {
+      url = `wss://${url}`;
     }
 
     return new Promise((resolve, reject) => {
@@ -36,7 +36,7 @@ class SocketService {
         this.ws = new WebSocket(url);
 
         this.ws.onopen = () => {
-          console.log('WebSocket Connected');
+          console.log("WebSocket Connected");
           this.isConnected = true;
           resolve(true);
         };
@@ -46,21 +46,24 @@ class SocketService {
             const message = JSON.parse(event.data) as NetworkMessage;
             this.notifyListeners(message);
           } catch (e) {
-            console.error('Failed to parse WebSocket message', e);
+            console.error("Failed to parse WebSocket message", e);
           }
         };
 
         this.ws.onerror = (err) => {
-          console.error('WebSocket Error:', err);
+          console.error("WebSocket Error:", err);
           this.isConnected = false;
-          reject(new Error('Failed to connect. The server might be asleep (Railway) or blocked by firewall.'));
+          reject(
+            new Error(
+              "Failed to connect. The server might be asleep (Railway) or blocked by firewall.",
+            ),
+          );
         };
 
         this.ws.onclose = () => {
-          console.log('WebSocket Closed');
+          console.log("WebSocket Closed");
           this.isConnected = false;
         };
-
       } catch (e) {
         reject(e);
       }
@@ -73,18 +76,21 @@ class SocketService {
   public send(message: NetworkMessage) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(message));
-      
+
       // Notify local listeners (Optimistic UI updates)
       this.notifyListeners(message);
     } else {
-      console.warn('WebSocket not connected, cannot send message:', message.type);
+      console.warn(
+        "WebSocket not connected, cannot send message:",
+        message.type,
+      );
     }
   }
 
   public subscribe(callback: (message: NetworkMessage) => void) {
     this.listeners.push(callback);
     return () => {
-      this.listeners = this.listeners.filter(l => l !== callback);
+      this.listeners = this.listeners.filter((l) => l !== callback);
     };
   }
 
@@ -97,7 +103,7 @@ class SocketService {
   }
 
   private notifyListeners(message: NetworkMessage) {
-    this.listeners.forEach(listener => listener(message));
+    this.listeners.forEach((listener) => listener(message));
   }
 }
 
