@@ -22,7 +22,7 @@ import { TaskList } from "./components/TaskList";
 const uuid = () => Math.random().toString(36).substring(2, 9);
 
 // HARDCODED PRODUCTION SERVER
-const SERVER_URL = "planning-test-vf5a.onrender.com";
+const SERVER_URL = "https://3.144.103.157:8080";
 
 // Helper for finding closest Fibonacci
 const getClosestFibonacci = (num: number): string | number => {
