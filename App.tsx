@@ -12,6 +12,7 @@ import {
   LogOut,
   Server,
   Eye,
+  Check,
 } from "lucide-react";
 import {
   initializeFirebaseService,
@@ -53,6 +54,7 @@ function App() {
   const [userName, setUserName] = useState("");
   const [roomInput, setRoomInput] = useState("");
   const [isObserver, setIsObserver] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -640,8 +642,59 @@ function App() {
   };
 
   const copyRoomCode = () => {
-    if (gameState.roomId) {
-      navigator.clipboard.writeText(gameState.roomId);
+    if (!gameState.roomId) return;
+    
+    const textToCopy = gameState.roomId;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(textToCopy)
+        .then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        })
+        .catch(err => {
+          console.error("Failed to copy using navigator.clipboard:", err);
+          fallbackCopy(textToCopy);
+        });
+    } else {
+      fallbackCopy(textToCopy);
+    }
+  };
+
+  const fallbackCopy = (text: string) => {
+    try {
+      const textArea = document.createElement("textarea");
+      textArea.value = text;
+      textArea.style.position = "fixed";  // avoid scrolling to bottom
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+      const successful = document.execCommand("copy");
+      document.body.removeChild(textArea);
+      if (successful) {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      } else {
+        alert("Não foi possível copiar automaticamente. Código: " + text);
+      }
+    } catch (err) {
+      console.error("Fallback copy failed:", err);
+      alert("Não foi possível copiar automaticamente. Código: " + text);
+    }
+  };
+
+  const pasteRoomCode = async () => {
+    try {
+      if (navigator.clipboard && navigator.clipboard.readText) {
+        const text = await navigator.clipboard.readText();
+        if (text) {
+          const cleanText = text.trim().toUpperCase().substring(0, 6);
+          setRoomInput(cleanText);
+        }
+      } else {
+        alert("A leitura da área de transferência não é suportada neste navegador/contexto.");
+      }
+    } catch (err) {
+      console.error("Failed to read from clipboard:", err);
     }
   };
 
@@ -731,15 +784,26 @@ function App() {
                 </button>
 
                 <div className="space-y-2">
-                  <input
-                    type="text"
-                    value={roomInput}
-                    onChange={(e) => setRoomInput(e.target.value.toUpperCase())}
-                    maxLength={6}
-                    disabled={isConnecting}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-center text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none uppercase tracking-widest disabled:opacity-50"
-                    placeholder="CODE"
-                  />
+                  <div className="relative flex items-center">
+                    <input
+                      type="text"
+                      value={roomInput}
+                      onChange={(e) => setRoomInput(e.target.value.toUpperCase())}
+                      maxLength={6}
+                      disabled={isConnecting}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-3 pr-10 py-2 text-center text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none uppercase tracking-widest disabled:opacity-50 font-mono"
+                      placeholder="CODE"
+                    />
+                    <button
+                      type="button"
+                      onClick={pasteRoomCode}
+                      disabled={isConnecting}
+                      className="absolute right-2 text-slate-500 hover:text-indigo-400 p-1 rounded transition-colors disabled:opacity-30"
+                      title="Colar código"
+                    >
+                      <ClipboardList className="w-4 h-4" />
+                    </button>
+                  </div>
                   <button
                     onClick={joinRoom}
                     disabled={
@@ -824,10 +888,16 @@ function App() {
               </span>
               <button
                 onClick={copyRoomCode}
-                className="text-slate-500 hover:text-white transition-colors ml-1"
-                title="Copy Code"
+                className={`transition-all duration-300 ml-1.5 p-1 rounded hover:bg-slate-800 ${
+                  copied ? "text-emerald-400" : "text-slate-500 hover:text-white"
+                }`}
+                title={copied ? "Código copiado!" : "Copiar código"}
               >
-                <Copy className="w-3.5 h-3.5" />
+                {copied ? (
+                  <Check className="w-3.5 h-3.5 text-emerald-400 animate-in fade-in zoom-in-50" />
+                ) : (
+                  <Copy className="w-3.5 h-3.5" />
+                )}
               </button>
             </div>
           </div>
