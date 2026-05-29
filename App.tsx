@@ -137,23 +137,64 @@ function App() {
         console.log("[App] User Left:", leftUserId);
 
         setGameState((prev) => {
-          const leavingUser = prev.users.find((u) => u.id === leftUserId);
-          const remainingUsers = prev.users.filter((u) => u.id !== leftUserId);
+          const currentUsers = objectToArray(prev.users);
+          const leavingUser = currentUsers.find((u) => u.id === leftUserId);
 
-          // ADMIN SUCCESSION LOGIC
+          // Filtra quem saiu
+          const remainingUsers = currentUsers.filter(
+            (u) => u.id !== leftUserId,
+          );
+
           let updatedUsers = remainingUsers;
+
+          // Se quem saiu era o Host e ainda tem gente na sala
           if (leavingUser?.isHost && remainingUsers.length > 0) {
-            // Promote the first user in the list (usually the oldest connection)
-            updatedUsers = remainingUsers.map((u, index) =>
-              index === 0 ? { ...u, isHost: true } : u,
+            console.log("[App] Host left. Executing succession logic...");
+
+            // DETERMINISMO: Ordenamos os usuários restantes pelo ID (ou outra propriedade estável)
+            // para garantir que TODOS os computadores da sala elejam exatamente a mesma pessoa.
+            const sortedUsers = [...remainingUsers].sort((a, b) =>
+              a.id.localeCompare(b.id),
+            );
+            const nextHostId = sortedUsers[0].id;
+
+            // Mapeia a lista aplicando o novo host
+            updatedUsers = remainingUsers.map((u) =>
+              u.id === nextHostId ? { ...u, isHost: true } : u,
             );
 
-            // Check if *I* became the host
-            if (updatedUsers[0].id === currentUserRef.current?.id) {
-              console.log("[App] I have become the Host via succession");
+            // VERIFICAÇÃO: Eu fui o escolhido pela sucessão?
+            if (nextHostId === currentUserRef.current?.id) {
+              console.log(
+                "[App] I am the chosen successor! Notifying database...",
+              );
+
+              // 1. Atualiza o currentUser local imediatamente
               setCurrentUser((prevUser) =>
                 prevUser ? { ...prevUser, isHost: true } : null,
               );
+
+              // 2. Grava no Firebase para persistir a decisão para a sala inteira
+              const firebaseService = getFirebaseService();
+              if (firebaseService) {
+                const db = (firebaseService as any).db;
+                if (db) {
+                  // Import dinâmico para atualizar o banco de dados de forma assíncrona
+                  import("firebase/database").then(({ ref, update }) => {
+                    update(
+                      ref(
+                        db,
+                        `rooms/${gameStateRef.current.roomId}/users/${nextHostId}`,
+                      ),
+                      {
+                        isHost: true,
+                      },
+                    ).catch((err) =>
+                      console.error("Error writing new host to DB:", err),
+                    );
+                  });
+                }
+              }
             }
           }
 
@@ -161,7 +202,9 @@ function App() {
             ...prev,
             users: updatedUsers,
             votes: Object.fromEntries(
-              Object.entries(prev.votes).filter(([uid]) => uid !== leftUserId),
+              Object.entries(prev.votes || {}).filter(
+                ([uid]) => uid !== leftUserId,
+              ),
             ),
           };
         });
@@ -510,19 +553,47 @@ function App() {
 
       // Check for empty room / Host auto-promotion
       // If we don't get a SYNC response in 1.5s, assume we are the first/only one
-      setTimeout(() => {
-        // Check ref directly to see if users list grew beyond just me
-        if (gameStateRef.current.users.length <= 1) {
-          console.log("No sync received, assuming empty room. Becoming Host.");
-          setCurrentUser((prev) => (prev ? { ...prev, isHost: true } : null));
-          setGameState((prev) => {
-            const updatedMe = prev.users.map((u) =>
-              u.id === newUser.id ? { ...u, isHost: true } : u,
-            );
-            return { ...prev, users: updatedMe };
-          });
+      setTimeout(async () => {
+        const currentUsers = objectToArray(gameStateRef.current.users);
+
+        // Se não recebemos sincronização e só tem nós na sala (ou ninguém)
+        if (currentUsers.length <= 1) {
+          console.log(
+            "No sync received, assuming empty room. Becoming Host via DB.",
+          );
+
+          const firebaseService = getFirebaseService();
+          if (!firebaseService) return;
+
+          try {
+            const db = (firebaseService as any).db;
+            if (db) {
+              const { ref, update } = await import("firebase/database");
+
+              // 1. Atualiza primeiro no Firebase para garantir a persistência
+              await update(
+                ref(db, `rooms/${roomIdToJoin}/users/${newUser.id}`),
+                {
+                  isHost: true,
+                },
+              );
+
+              // 2. Atualiza o estado local imediatamente para a UI responder rápido
+              setCurrentUser((prev) =>
+                prev ? { ...prev, isHost: true } : null,
+              );
+              setGameState((prev) => {
+                const updatedMe = objectToArray(prev.users).map((u) =>
+                  u.id === newUser.id ? { ...u, isHost: true } : u,
+                );
+                return { ...prev, users: updatedMe };
+              });
+            }
+          } catch (err) {
+            console.error("[App] Erro ao auto-promover host no Firebase:", err);
+          }
         } else {
-          // Just in case, ask for sync again if users exist but I don't have full state
+          // Caso existam usuários mas o estado não veio completo, força o pedido de sync
           const firebaseService = getFirebaseService();
           firebaseService?.send({
             type: "SYNC_REQUEST",
@@ -784,6 +855,10 @@ function App() {
     }
   };
 
+  const unlockRoomInput = () => {
+    return roomInput.length === 5;
+  };
+
   // RENDER: Login Screen
   if (!gameState.roomId || !currentUser) {
     return (
@@ -877,7 +952,8 @@ function App() {
                       onChange={(e) =>
                         setRoomInput(e.target.value.toUpperCase())
                       }
-                      maxLength={6}
+                      maxLength={5}
+                      minLength={5}
                       disabled={isConnecting}
                       className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-3 pr-10 py-2 text-center text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none uppercase tracking-widest disabled:opacity-50 font-mono"
                       placeholder="CODE"
@@ -896,13 +972,13 @@ function App() {
                     onClick={joinRoom}
                     disabled={
                       !userName ||
-                      !roomInput ||
+                      !unlockRoomInput() ||
                       isConnecting ||
                       !isFirebaseReady
                     }
                     className="w-full bg-slate-800 hover:bg-indigo-600 text-white py-2 rounded-lg font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
                   >
-                    {isConnecting && roomInput ? (
+                    {isConnecting && unlockRoomInput() ? (
                       <Loader2 className="w-4 h-4 animate-spin" />
                     ) : (
                       <>
