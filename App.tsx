@@ -199,8 +199,14 @@ function App() {
         console.log("[App] Received SYNC_RESPONSE, converting data...");
         const syncedUsers = objectToArray(msg.payload.users);
         const syncedTasks = objectToArray(msg.payload.tasks);
-        console.log("[App] SYNC tasks raw:", msg.payload.tasks);
-        console.log("[App] SYNC tasks raw type:", typeof msg.payload.tasks, "isArray:", Array.isArray(msg.payload.tasks), "converted length:", syncedTasks.length);
+        console.log(
+          "[App] SYNC tasks raw type:",
+          typeof msg.payload.tasks,
+          "isArray:",
+          Array.isArray(msg.payload.tasks),
+          "converted length:",
+          syncedTasks.length,
+        );
         const syncedState = {
           ...msg.payload,
           users: syncedUsers,
@@ -214,10 +220,17 @@ function App() {
           (u: User) => u.id === currentUserRef.current?.id,
         );
         if (meInState && currentUserRef.current) {
-          const needsHostSync = meInState.isHost !== currentUserRef.current.isHost;
-          const needsObserverSync = meInState.isObserver !== currentUserRef.current.isObserver;
+          const needsHostSync =
+            meInState.isHost !== currentUserRef.current.isHost;
+          const needsObserverSync =
+            meInState.isObserver !== currentUserRef.current.isObserver;
           if (needsHostSync || needsObserverSync) {
-            console.log("[App] Syncing user status. Host:", meInState.isHost, "Observer:", meInState.isObserver);
+            console.log(
+              "[App] Syncing user status. Host:",
+              meInState.isHost,
+              "Observer:",
+              meInState.isObserver,
+            );
             setCurrentUser({
               ...currentUserRef.current,
               isHost: meInState.isHost,
@@ -332,10 +345,16 @@ function App() {
 
   // Initialize Firebase on mount
   useEffect(() => {
+    let unsubscribe: (() => void) | undefined;
+
     try {
+      // 1. Inicializa o serviço primeiro
       const firebaseService = initializeFirebaseService(firebaseConfig);
       console.log("[App] Firebase initialized successfully");
       setIsFirebaseReady(true);
+
+      // 2. Agora sim, com o serviço garantido, fazemos o subscribe
+      unsubscribe = firebaseService.subscribe(handleMessage);
     } catch (err: any) {
       console.error("[App] Firebase initialization failed:", err);
       setErrorMsg(
@@ -344,7 +363,12 @@ function App() {
       );
       setIsFirebaseReady(false);
     }
-  }, []);
+
+    // Cleanup na desmontagem do componente
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [handleMessage]);
 
   // Actions
   const createRoom = async () => {
@@ -353,7 +377,12 @@ function App() {
     setErrorMsg(null);
 
     const newRoomId = uuid().substring(0, 5).toUpperCase();
-    const newUser: User = { id: uuid(), name: userName, isHost: true, isObserver: isObserver };
+    const newUser: User = {
+      id: uuid(),
+      name: userName,
+      isHost: true,
+      isObserver: isObserver,
+    };
 
     try {
       const firebaseService = getFirebaseService();
@@ -421,7 +450,12 @@ function App() {
     setErrorMsg(null);
 
     const roomIdToJoin = roomInput.toUpperCase();
-    const newUser: User = { id: uuid(), name: userName, isHost: false, isObserver: isObserver }; // Initially false
+    const newUser: User = {
+      id: uuid(),
+      name: userName,
+      isHost: false,
+      isObserver: isObserver,
+    }; // Initially false
 
     try {
       const firebaseService = getFirebaseService();
@@ -521,7 +555,7 @@ function App() {
 
   const toggleObserverMode = async () => {
     if (!currentUser || !gameState.roomId) return;
-    
+
     const newObserverStatus = !currentUser.isObserver;
     const firebaseService = getFirebaseService();
     if (!firebaseService) return;
@@ -537,7 +571,9 @@ function App() {
         const db = (firebaseService as any).db;
         if (db) {
           const { ref, remove } = await import("firebase/database");
-          await remove(ref(db, `rooms/${gameState.roomId}/votes/${currentUser.id}`));
+          await remove(
+            ref(db, `rooms/${gameState.roomId}/votes/${currentUser.id}`),
+          );
         }
       }
 
@@ -545,12 +581,17 @@ function App() {
       const db = (firebaseService as any).db;
       if (db) {
         const { ref, update } = await import("firebase/database");
-        await update(ref(db, `rooms/${gameState.roomId}/users/${currentUser.id}`), {
-          isObserver: newObserverStatus
-        });
+        await update(
+          ref(db, `rooms/${gameState.roomId}/users/${currentUser.id}`),
+          {
+            isObserver: newObserverStatus,
+          },
+        );
       }
-      
-      console.log(`[App] Toggled observer mode. New status: ${newObserverStatus}`);
+
+      console.log(
+        `[App] Toggled observer mode. New status: ${newObserverStatus}`,
+      );
     } catch (err) {
       console.error("[App] Error toggling observer mode:", err);
     }
@@ -647,15 +688,16 @@ function App() {
 
   const copyRoomCode = () => {
     if (!gameState.roomId) return;
-    
+
     const textToCopy = gameState.roomId;
     if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(textToCopy)
+      navigator.clipboard
+        .writeText(textToCopy)
         .then(() => {
           setCopied(true);
           setTimeout(() => setCopied(false), 2000);
         })
-        .catch(err => {
+        .catch((err) => {
           console.error("Failed to copy using navigator.clipboard:", err);
           fallbackCopy(textToCopy);
         });
@@ -668,7 +710,7 @@ function App() {
     try {
       const textArea = document.createElement("textarea");
       textArea.value = text;
-      textArea.style.position = "fixed";  // avoid scrolling to bottom
+      textArea.style.position = "fixed"; // avoid scrolling to bottom
       document.body.appendChild(textArea);
       textArea.focus();
       textArea.select();
@@ -695,7 +737,9 @@ function App() {
           setRoomInput(cleanText);
         }
       } else {
-        alert("A leitura da área de transferência não é suportada neste navegador/contexto.");
+        alert(
+          "A leitura da área de transferência não é suportada neste navegador/contexto.",
+        );
       }
     } catch (err) {
       console.error("Failed to read from clipboard:", err);
@@ -792,7 +836,9 @@ function App() {
                     <input
                       type="text"
                       value={roomInput}
-                      onChange={(e) => setRoomInput(e.target.value.toUpperCase())}
+                      onChange={(e) =>
+                        setRoomInput(e.target.value.toUpperCase())
+                      }
                       maxLength={6}
                       disabled={isConnecting}
                       className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-3 pr-10 py-2 text-center text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none uppercase tracking-widest disabled:opacity-50 font-mono"
@@ -893,7 +939,9 @@ function App() {
               <button
                 onClick={copyRoomCode}
                 className={`transition-all duration-300 ml-1.5 p-1 rounded hover:bg-slate-800 ${
-                  copied ? "text-emerald-400" : "text-slate-500 hover:text-white"
+                  copied
+                    ? "text-emerald-400"
+                    : "text-slate-500 hover:text-white"
                 }`}
                 title={copied ? "Código copiado!" : "Copiar código"}
               >
@@ -970,10 +1018,13 @@ function App() {
             <div className="bg-slate-900 border-t border-slate-800 p-6 z-10 flex flex-col items-center justify-center gap-3">
               <div className="flex items-center gap-2 text-slate-400">
                 <Eye className="w-5 h-5 text-indigo-400 animate-pulse" />
-                <span className="text-sm font-semibold">Você está no modo Observador</span>
+                <span className="text-sm font-semibold">
+                  Você está no modo Observador
+                </span>
               </div>
               <p className="text-xs text-slate-500 text-center max-w-xs">
-                Como observador, você não participa das votações, mas pode ver os votos em tempo real assim que revelados.
+                Como observador, você não participa das votações, mas pode ver
+                os votos em tempo real assim que revelados.
               </p>
               <button
                 onClick={toggleObserverMode}
