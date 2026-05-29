@@ -11,6 +11,7 @@ import {
   Loader2,
   LogOut,
   Server,
+  Eye,
 } from "lucide-react";
 import {
   initializeFirebaseService,
@@ -51,6 +52,7 @@ function App() {
   // Local UI State
   const [userName, setUserName] = useState("");
   const [roomInput, setRoomInput] = useState("");
+  const [isObserver, setIsObserver] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -200,17 +202,20 @@ function App() {
         };
         setGameState(syncedState);
 
-        // Ensure my currentUser isHost flag is consistent with the synced state
-        // If I am in the user list, sync my host status
+        // Ensure my currentUser isHost and isObserver flags are consistent with the synced state
+        // If I am in the user list, sync my status
         const meInState = syncedUsers.find(
           (u: User) => u.id === currentUserRef.current?.id,
         );
         if (meInState && currentUserRef.current) {
-          if (meInState.isHost !== currentUserRef.current.isHost) {
-            console.log("[App] Syncing host status:", meInState.isHost);
+          const needsHostSync = meInState.isHost !== currentUserRef.current.isHost;
+          const needsObserverSync = meInState.isObserver !== currentUserRef.current.isObserver;
+          if (needsHostSync || needsObserverSync) {
+            console.log("[App] Syncing user status. Host:", meInState.isHost, "Observer:", meInState.isObserver);
             setCurrentUser({
               ...currentUserRef.current,
               isHost: meInState.isHost,
+              isObserver: meInState.isObserver,
             });
           }
         }
@@ -275,10 +280,13 @@ function App() {
         break;
 
       case "ADD_TASK":
-        setGameState((prev) => ({
-          ...prev,
-          tasks: [...prev.tasks, msg.payload],
-        }));
+        setGameState((prev) => {
+          if (prev.tasks.some((t) => t.id === msg.payload.id)) return prev;
+          return {
+            ...prev,
+            tasks: [...prev.tasks, msg.payload],
+          };
+        });
         break;
 
       case "DELETE_TASK":
@@ -339,7 +347,7 @@ function App() {
     setErrorMsg(null);
 
     const newRoomId = uuid().substring(0, 5).toUpperCase();
-    const newUser: User = { id: uuid(), name: userName, isHost: true };
+    const newUser: User = { id: uuid(), name: userName, isHost: true, isObserver: isObserver };
 
     try {
       const firebaseService = getFirebaseService();
@@ -407,7 +415,7 @@ function App() {
     setErrorMsg(null);
 
     const roomIdToJoin = roomInput.toUpperCase();
-    const newUser: User = { id: uuid(), name: userName, isHost: false }; // Initially false
+    const newUser: User = { id: uuid(), name: userName, isHost: false, isObserver: isObserver }; // Initially false
 
     try {
       const firebaseService = getFirebaseService();
@@ -503,6 +511,43 @@ function App() {
     });
     setCurrentUser(null);
     setRoomInput("");
+  };
+
+  const toggleObserverMode = async () => {
+    if (!currentUser || !gameState.roomId) return;
+    
+    const newObserverStatus = !currentUser.isObserver;
+    const firebaseService = getFirebaseService();
+    if (!firebaseService) return;
+
+    try {
+      // 1. Update our local currentUser state so that we immediately reflect the change
+      const updatedUser = { ...currentUser, isObserver: newObserverStatus };
+      setCurrentUser(updatedUser);
+
+      // 2. If transitioning to observer, clear our vote in the database
+      if (newObserverStatus) {
+        // Clear vote from Firebase under /rooms/{roomId}/votes/{userId}
+        const db = (firebaseService as any).db;
+        if (db) {
+          const { ref, remove } = await import("firebase/database");
+          await remove(ref(db, `rooms/${gameState.roomId}/votes/${currentUser.id}`));
+        }
+      }
+
+      // 3. Update the user object in Firebase under /rooms/{roomId}/users/{userId}
+      const db = (firebaseService as any).db;
+      if (db) {
+        const { ref, update } = await import("firebase/database");
+        await update(ref(db, `rooms/${gameState.roomId}/users/${currentUser.id}`), {
+          isObserver: newObserverStatus
+        });
+      }
+      
+      console.log(`[App] Toggled observer mode. New status: ${newObserverStatus}`);
+    } catch (err) {
+      console.error("[App] Error toggling observer mode:", err);
+    }
   };
 
   const submitVote = (value: string | number) => {
@@ -638,6 +683,26 @@ function App() {
                 className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition disabled:opacity-50"
                 placeholder="e.g. John Doe"
               />
+            </div>
+
+            <div className="flex items-center space-x-3 bg-slate-950/40 p-3 rounded-lg border border-slate-800/80 hover:border-slate-700/60 transition-all select-none">
+              <input
+                type="checkbox"
+                id="isObserver"
+                checked={isObserver}
+                onChange={(e) => setIsObserver(e.target.checked)}
+                disabled={isConnecting}
+                className="w-4.5 h-4.5 rounded border-slate-700 bg-slate-950 text-indigo-600 focus:ring-indigo-500 focus:ring-offset-slate-900 cursor-pointer"
+              />
+              <label
+                htmlFor="isObserver"
+                className="flex-1 text-sm text-slate-300 font-medium cursor-pointer"
+              >
+                Entrar como Observador
+                <span className="block text-[10px] text-slate-500 font-normal">
+                  Você não poderá votar, apenas assistir a votação.
+                </span>
+              </label>
             </div>
 
             {errorMsg && (
@@ -827,19 +892,44 @@ function App() {
           </div>
 
           {/* Hand / Cards */}
-          <div className="bg-slate-900 border-t border-slate-800 p-6 z-10">
-            <div className="flex justify-center gap-2 md:gap-4 overflow-x-50 pb-2 md:pb-0 scrollbar-hide">
-              {FIBONACCI_SEQ.map((val) => (
-                <Card
-                  key={val}
-                  value={val}
-                  selected={gameState.votes[currentUser.id] === val}
-                  onClick={() => submitVote(val)}
-                  disabled={gameState.isRevealed || !activeTask}
-                />
-              ))}
+          {currentUser.isObserver ? (
+            <div className="bg-slate-900 border-t border-slate-800 p-6 z-10 flex flex-col items-center justify-center gap-3">
+              <div className="flex items-center gap-2 text-slate-400">
+                <Eye className="w-5 h-5 text-indigo-400 animate-pulse" />
+                <span className="text-sm font-semibold">Você está no modo Observador</span>
+              </div>
+              <p className="text-xs text-slate-500 text-center max-w-xs">
+                Como observador, você não participa das votações, mas pode ver os votos em tempo real assim que revelados.
+              </p>
+              <button
+                onClick={toggleObserverMode}
+                className="mt-1 bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-xs font-semibold transition border border-slate-700 hover:border-indigo-500 hover:text-indigo-400"
+              >
+                Mudar para Votante
+              </button>
             </div>
-          </div>
+          ) : (
+            <div className="bg-slate-900 border-t border-slate-800 p-6 z-10 flex flex-col items-center gap-4">
+              <div className="flex justify-center gap-2 md:gap-4 overflow-x-auto pb-2 md:pb-0 scrollbar-hide w-full max-w-2xl">
+                {FIBONACCI_SEQ.map((val) => (
+                  <Card
+                    key={val}
+                    value={val}
+                    selected={gameState.votes[currentUser.id] === val}
+                    onClick={() => submitVote(val)}
+                    disabled={gameState.isRevealed || !activeTask}
+                  />
+                ))}
+              </div>
+              <button
+                onClick={toggleObserverMode}
+                className="text-slate-500 hover:text-indigo-400 text-xs font-medium transition flex items-center gap-1.5"
+              >
+                <Eye className="w-3.5 h-3.5" />
+                Mudar para Observador
+              </button>
+            </div>
+          )}
         </main>
       </div>
     </div>
