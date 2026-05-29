@@ -198,9 +198,12 @@ function App() {
       case "SYNC_RESPONSE":
         console.log("[App] Received SYNC_RESPONSE, converting data...");
         const syncedUsers = objectToArray(msg.payload.users);
+        const syncedTasks = objectToArray(msg.payload.tasks);
+        console.log("[App] SYNC tasks raw type:", typeof msg.payload.tasks, "isArray:", Array.isArray(msg.payload.tasks), "converted length:", syncedTasks.length);
         const syncedState = {
           ...msg.payload,
           users: syncedUsers,
+          tasks: syncedTasks,
         };
         setGameState(syncedState);
 

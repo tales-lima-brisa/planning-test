@@ -367,8 +367,10 @@ class FirebaseService {
       }
 
       console.log(`[Firebase] Message sent successfully:`, message.type);
-      // Keep local listener notification for messages not backed by DB logic
-      this.notifyListeners(message);
+      // Note: We do NOT call notifyListeners here.
+      // The onValue subscription in subscribeToRoom already broadcasts
+      // SYNC_RESPONSE with the full updated state after every DB write.
+      // Calling notifyListeners here would cause double-processing.
     } catch (e: any) {
       console.error("[Firebase] Failed to send message:", e);
     }
