@@ -13,6 +13,7 @@ import {
   Server,
   Eye,
   Check,
+  Share2,
 } from "lucide-react";
 import {
   initializeFirebaseService,
@@ -49,12 +50,17 @@ const getClosestFibonacci = (num: number): string | number => {
   return closest;
 };
 
+function changeUrl(code: string) {
+  window.history.pushState({}, "", `/${code}`);
+}
+
 function App() {
   // Local UI State
   const [userName, setUserName] = useState("");
   const [roomInput, setRoomInput] = useState("");
   const [isObserver, setIsObserver] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [copiedUrl, setCopiedUrl] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -336,6 +342,14 @@ function App() {
         break;
     }
   }, []); // Dependencies reduced since we use Ref
+  useEffect(() => {
+    const path = window.location.pathname.replace("/", "").trim().toUpperCase();
+
+    // Verifica se o caminho parece um código de sala válido (ex: 5 ou 6 caracteres)
+    if (path && path.length >= 5 && path.length <= 6) {
+      setRoomInput(path);
+    }
+  }, []);
 
   useEffect(() => {
     const firebaseService = getFirebaseService();
@@ -418,6 +432,9 @@ function App() {
       setGameState(initialState);
       console.log("[App] State updated. Room ready:", newRoomId);
 
+      //change room URL
+      changeUrl(newRoomId);
+
       // Send JOIN message to Firebase
       await firebaseService.send({
         type: "JOIN",
@@ -472,6 +489,8 @@ function App() {
 
       console.log("[App] Connected to room. Updating state...");
       setCurrentUser(newUser);
+
+      changeUrl(roomIdToJoin);
 
       // Temporarily set minimal state, waiting for sync
       setGameState((prev) => ({
@@ -551,6 +570,7 @@ function App() {
     });
     setCurrentUser(null);
     setRoomInput("");
+    changeUrl("");
   };
 
   const toggleObserverMode = async () => {
@@ -703,6 +723,24 @@ function App() {
         });
     } else {
       fallbackCopy(textToCopy);
+    }
+  };
+
+  const handleCopyRoomUrl = () => {
+    const url = window.location.href;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard
+        .writeText(url)
+        .then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        })
+        .catch((err) => {
+          console.error("Failed to copy using navigator.clipboard:", err);
+          fallbackCopy(url);
+        });
+    } else {
+      fallbackCopy(url);
     }
   };
 
@@ -949,6 +987,21 @@ function App() {
                   <Check className="w-3.5 h-3.5 text-emerald-400 animate-in fade-in zoom-in-50" />
                 ) : (
                   <Copy className="w-3.5 h-3.5" />
+                )}
+              </button>
+              <button
+                onClick={handleCopyRoomUrl}
+                className={`transition-all duration-300 ml-1.5 p-1 rounded hover:bg-slate-800 ${
+                  copiedUrl
+                    ? "text-emerald-400"
+                    : "text-slate-500 hover:text-white"
+                }`}
+                title={copiedUrl ? "Link copiado!" : "Copiar Link da Sala"}
+              >
+                {copiedUrl ? (
+                  <Check className="w-3.5 h-3.5 text-emerald-400 animate-in fade-in zoom-in-50" />
+                ) : (
+                  <Share2 className="w-3.5 h-3.5" />
                 )}
               </button>
             </div>
