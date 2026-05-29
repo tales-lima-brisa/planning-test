@@ -3,6 +3,7 @@ export interface User {
   id: string;
   name: string;
   isHost: boolean;
+  isObserver?: boolean;
 }
 
 export interface Vote {

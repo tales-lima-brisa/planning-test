@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { User, GameState } from '../types';
-import { Check, Loader2, Crown } from 'lucide-react';
+import { Check, Loader2, Crown, Eye } from 'lucide-react';
 
 interface TableProps {
   gameState: GameState;
@@ -12,7 +12,8 @@ interface TableProps {
 }
 
 export const Table: React.FC<TableProps> = ({ gameState, currentUser, onReveal, onReset, onPromote }) => {
-  const allVoted = gameState.users.length > 0 && gameState.users.every(u => gameState.votes[u.id] !== undefined);
+  const voters = gameState.users.filter(u => !u.isObserver);
+  const allVoted = voters.length > 0 && voters.every(u => gameState.votes[u.id] !== undefined);
   
   // Average calculation is handled in App.tsx logic via finalScore now, 
   // but for live view we can show it here if revealed.
@@ -34,7 +35,10 @@ export const Table: React.FC<TableProps> = ({ gameState, currentUser, onReveal, 
         {!gameState.isRevealed ? (
           <div className="text-center">
             <p className="text-slate-400 text-sm uppercase tracking-widest font-semibold mb-2">
-              {Object.keys(gameState.votes).length} / {gameState.users.length} Voted
+              {voters.length === 0 
+                ? "No voters in room" 
+                : `${Object.keys(gameState.votes).length} / ${voters.length} Voted`
+              }
             </p>
             {currentUser?.isHost && (
               <button
@@ -97,7 +101,9 @@ export const Table: React.FC<TableProps> = ({ gameState, currentUser, onReveal, 
                 className={`
                   relative w-10 h-14 rounded border-2 flex items-center justify-center shadow-lg transition-all duration-500
                   ${
-                    gameState.isRevealed
+                    user.isObserver
+                      ? 'bg-slate-900/60 border-slate-800/80 opacity-70 border-dashed rotate-0'
+                      : gameState.isRevealed
                       ? 'bg-slate-100 border-indigo-500 text-slate-900 text-xl font-bold rotate-0'
                       : hasVoted
                       ? 'bg-indigo-600 border-indigo-400 rotate-3 translate-y-1'
@@ -123,7 +129,9 @@ export const Table: React.FC<TableProps> = ({ gameState, currentUser, onReveal, 
                     </button>
                 )}
 
-                {gameState.isRevealed ? (
+                {user.isObserver ? (
+                  <Eye className="w-5 h-5 text-slate-500" />
+                ) : gameState.isRevealed ? (
                   voteValue
                 ) : hasVoted ? (
                   <Check className="w-5 h-5 text-white" />

@@ -11,18 +11,28 @@ import {
   Loader2,
   LogOut,
   Server,
+  Eye,
+  Check,
 } from "lucide-react";
-import { socketService } from "./services/socketService";
+import {
+  initializeFirebaseService,
+  getFirebaseService,
+} from "./services/firebaseService";
+import firebaseConfig from "./firebaseConfig";
 import { GameState, User, NetworkMessage, FIBONACCI_SEQ, Task } from "./types";
 import { Card } from "./components/Card";
 import { Table } from "./components/Table";
 import { TaskList } from "./components/TaskList";
 
+// Helper to convert Firebase object to array
+const objectToArray = (obj: any): any[] => {
+  if (Array.isArray(obj)) return obj;
+  if (!obj) return [];
+  return Object.values(obj);
+};
+
 // Helper to generate IDs
 const uuid = () => Math.random().toString(36).substring(2, 9);
-
-// HARDCODED PRODUCTION SERVER
-const SERVER_URL = "planning-test-vf5a.onrender.com";
 
 // Helper for finding closest Fibonacci
 const getClosestFibonacci = (num: number): string | number => {
@@ -43,10 +53,13 @@ function App() {
   // Local UI State
   const [userName, setUserName] = useState("");
   const [roomInput, setRoomInput] = useState("");
+  const [isObserver, setIsObserver] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [showSidebar, setShowSidebar] = useState(false);
+  const [isFirebaseReady, setIsFirebaseReady] = useState(false);
 
   // Game State
   const [gameState, setGameState] = useState<GameState>({
@@ -102,7 +115,8 @@ function App() {
             users: updatedUsers,
           };
 
-          socketService.send({
+          const firebaseService = getFirebaseService();
+          firebaseService?.send({
             type: "SYNC_RESPONSE",
             roomId: msg.roomId,
             senderId: currentUserRef.current.id,
@@ -171,7 +185,8 @@ function App() {
 
       case "SYNC_REQUEST":
         if (currentUserRef.current?.isHost) {
-          socketService.send({
+          const firebaseService = getFirebaseService();
+          firebaseService?.send({
             type: "SYNC_RESPONSE",
             roomId: msg.roomId,
             senderId: currentUserRef.current.id,
@@ -181,17 +196,28 @@ function App() {
         break;
 
       case "SYNC_RESPONSE":
-        setGameState(msg.payload);
-        // Ensure my currentUser isHost flag is consistent with the synced state
-        // If I am in the user list, sync my host status
-        const meInState = msg.payload.users.find(
+        console.log("[App] Received SYNC_RESPONSE, converting data...");
+        const syncedUsers = objectToArray(msg.payload.users);
+        const syncedState = {
+          ...msg.payload,
+          users: syncedUsers,
+        };
+        setGameState(syncedState);
+
+        // Ensure my currentUser isHost and isObserver flags are consistent with the synced state
+        // If I am in the user list, sync my status
+        const meInState = syncedUsers.find(
           (u: User) => u.id === currentUserRef.current?.id,
         );
         if (meInState && currentUserRef.current) {
-          if (meInState.isHost !== currentUserRef.current.isHost) {
+          const needsHostSync = meInState.isHost !== currentUserRef.current.isHost;
+          const needsObserverSync = meInState.isObserver !== currentUserRef.current.isObserver;
+          if (needsHostSync || needsObserverSync) {
+            console.log("[App] Syncing user status. Host:", meInState.isHost, "Observer:", meInState.isObserver);
             setCurrentUser({
               ...currentUserRef.current,
               isHost: meInState.isHost,
+              isObserver: meInState.isObserver,
             });
           }
         }
@@ -256,10 +282,13 @@ function App() {
         break;
 
       case "ADD_TASK":
-        setGameState((prev) => ({
-          ...prev,
-          tasks: [...prev.tasks, msg.payload],
-        }));
+        setGameState((prev) => {
+          if (prev.tasks.some((t) => t.id === msg.payload.id)) return prev;
+          return {
+            ...prev,
+            tasks: [...prev.tasks, msg.payload],
+          };
+        });
         break;
 
       case "DELETE_TASK":
@@ -292,25 +321,58 @@ function App() {
   }, []); // Dependencies reduced since we use Ref
 
   useEffect(() => {
-    const unsubscribe = socketService.subscribe(handleMessage);
-    return () => unsubscribe();
+    const firebaseService = getFirebaseService();
+    const unsubscribe = firebaseService?.subscribe(handleMessage);
+    return () => unsubscribe?.();
   }, [handleMessage]);
+
+  // Initialize Firebase on mount
+  useEffect(() => {
+    try {
+      const firebaseService = initializeFirebaseService(firebaseConfig);
+      console.log("[App] Firebase initialized successfully");
+      setIsFirebaseReady(true);
+    } catch (err: any) {
+      console.error("[App] Firebase initialization failed:", err);
+      setErrorMsg(
+        err.message ||
+          "Firebase configuration error. Check console and .env file.",
+      );
+      setIsFirebaseReady(false);
+    }
+  }, []);
 
   // Actions
   const createRoom = async () => {
-    if (!userName.trim()) return;
+    if (!userName.trim() || !isFirebaseReady) return;
     setIsConnecting(true);
     setErrorMsg(null);
 
     const newRoomId = uuid().substring(0, 5).toUpperCase();
-    const newUser: User = { id: uuid(), name: userName, isHost: true };
+    const newUser: User = { id: uuid(), name: userName, isHost: true, isObserver: isObserver };
 
     try {
-      await socketService.connect(SERVER_URL);
+      const firebaseService = getFirebaseService();
+      if (!firebaseService) {
+        throw new Error("Firebase service not initialized");
+      }
+
+      console.log("[App] Creating room:", newRoomId);
+      const connected = await firebaseService.connect(newRoomId);
+
+      if (!connected) {
+        throw new Error("Failed to connect to Firebase room");
+      }
+
+      console.log("[App] Connected to room. Updating state...");
+
+      // Update user first
       setCurrentUser(newUser);
+
       const initialTasks: Task[] = [
         { id: uuid(), title: "First User Story", status: "active" },
       ];
+
       const initialState: GameState = {
         roomId: newRoomId,
         users: [newUser],
@@ -319,32 +381,58 @@ function App() {
         currentTaskId: initialTasks[0].id,
         isRevealed: false,
       };
-      setGameState(initialState);
 
-      socketService.send({
+      setGameState(initialState);
+      console.log("[App] State updated. Room ready:", newRoomId);
+
+      // Send JOIN message to Firebase
+      await firebaseService.send({
         type: "JOIN",
         roomId: newRoomId,
         payload: newUser,
         senderId: newUser.id,
       });
+
+      console.log("[App] JOIN message sent");
     } catch (err: any) {
-      console.error(err);
+      console.error("[App] Error creating room:", err);
       setErrorMsg(err.message || "Connection failed.");
+      setCurrentUser(null);
+      setGameState({
+        roomId: null,
+        users: [],
+        votes: {},
+        tasks: [],
+        currentTaskId: null,
+        isRevealed: false,
+      });
     } finally {
       setIsConnecting(false);
     }
   };
 
   const joinRoom = async () => {
-    if (!userName.trim() || !roomInput.trim()) return;
+    if (!userName.trim() || !roomInput.trim() || !isFirebaseReady) return;
     setIsConnecting(true);
     setErrorMsg(null);
 
     const roomIdToJoin = roomInput.toUpperCase();
-    const newUser: User = { id: uuid(), name: userName, isHost: false }; // Initially false
+    const newUser: User = { id: uuid(), name: userName, isHost: false, isObserver: isObserver }; // Initially false
 
     try {
-      await socketService.connect(SERVER_URL);
+      const firebaseService = getFirebaseService();
+      if (!firebaseService) {
+        throw new Error("Firebase service not initialized");
+      }
+
+      console.log("[App] Joining room:", roomIdToJoin);
+      const connected = await firebaseService.connect(roomIdToJoin);
+
+      if (!connected) {
+        throw new Error("Failed to connect to Firebase room");
+      }
+
+      console.log("[App] Connected to room. Updating state...");
       setCurrentUser(newUser);
 
       // Temporarily set minimal state, waiting for sync
@@ -354,12 +442,14 @@ function App() {
         users: [newUser],
       }));
 
-      socketService.send({
+      await firebaseService.send({
         type: "JOIN",
         roomId: roomIdToJoin,
         payload: newUser,
         senderId: newUser.id,
       });
+
+      console.log("[App] JOIN message sent. Waiting for sync...");
 
       // Check for empty room / Host auto-promotion
       // If we don't get a SYNC response in 1.5s, assume we are the first/only one
@@ -376,7 +466,8 @@ function App() {
           });
         } else {
           // Just in case, ask for sync again if users exist but I don't have full state
-          socketService.send({
+          const firebaseService = getFirebaseService();
+          firebaseService?.send({
             type: "SYNC_REQUEST",
             roomId: roomIdToJoin,
             payload: {},
@@ -385,15 +476,33 @@ function App() {
         }
       }, 1500);
     } catch (err: any) {
-      console.error(err);
+      console.error("[App] Error joining room:", err);
       setErrorMsg(err.message || "Connection failed.");
+      setCurrentUser(null);
+      setGameState({
+        roomId: null,
+        users: [],
+        votes: {},
+        tasks: [],
+        currentTaskId: null,
+        isRevealed: false,
+      });
     } finally {
       setIsConnecting(false);
     }
   };
 
   const exitRoom = () => {
-    socketService.disconnect();
+    const firebaseService = getFirebaseService();
+    if (currentUser && gameState.roomId) {
+      firebaseService?.send({
+        type: "USER_LEFT",
+        roomId: gameState.roomId,
+        senderId: currentUser.id,
+        payload: { id: currentUser.id },
+      });
+    }
+    firebaseService?.disconnect();
     setGameState({
       roomId: null,
       users: [],
@@ -406,9 +515,47 @@ function App() {
     setRoomInput("");
   };
 
+  const toggleObserverMode = async () => {
+    if (!currentUser || !gameState.roomId) return;
+    
+    const newObserverStatus = !currentUser.isObserver;
+    const firebaseService = getFirebaseService();
+    if (!firebaseService) return;
+
+    try {
+      // 1. Update our local currentUser state so that we immediately reflect the change
+      const updatedUser = { ...currentUser, isObserver: newObserverStatus };
+      setCurrentUser(updatedUser);
+
+      // 2. If transitioning to observer, clear our vote in the database
+      if (newObserverStatus) {
+        // Clear vote from Firebase under /rooms/{roomId}/votes/{userId}
+        const db = (firebaseService as any).db;
+        if (db) {
+          const { ref, remove } = await import("firebase/database");
+          await remove(ref(db, `rooms/${gameState.roomId}/votes/${currentUser.id}`));
+        }
+      }
+
+      // 3. Update the user object in Firebase under /rooms/{roomId}/users/{userId}
+      const db = (firebaseService as any).db;
+      if (db) {
+        const { ref, update } = await import("firebase/database");
+        await update(ref(db, `rooms/${gameState.roomId}/users/${currentUser.id}`), {
+          isObserver: newObserverStatus
+        });
+      }
+      
+      console.log(`[App] Toggled observer mode. New status: ${newObserverStatus}`);
+    } catch (err) {
+      console.error("[App] Error toggling observer mode:", err);
+    }
+  };
+
   const submitVote = (value: string | number) => {
     if (!currentUser || !gameState.roomId) return;
-    socketService.send({
+    const firebaseService = getFirebaseService();
+    firebaseService?.send({
       type: "VOTE",
       roomId: gameState.roomId,
       senderId: currentUser.id,
@@ -418,7 +565,8 @@ function App() {
 
   const revealVotes = () => {
     if (!currentUser?.isHost || !gameState.roomId) return;
-    socketService.send({
+    const firebaseService = getFirebaseService();
+    firebaseService?.send({
       type: "REVEAL",
       roomId: gameState.roomId,
       senderId: currentUser.id,
@@ -428,7 +576,8 @@ function App() {
 
   const resetRound = () => {
     if (!currentUser?.isHost || !gameState.roomId) return;
-    socketService.send({
+    const firebaseService = getFirebaseService();
+    firebaseService?.send({
       type: "RESET",
       roomId: gameState.roomId,
       senderId: currentUser.id,
@@ -439,7 +588,8 @@ function App() {
   const addTask = (title: string) => {
     if (!currentUser?.isHost || !gameState.roomId) return;
     const newTask: Task = { id: uuid(), title, status: "pending" };
-    socketService.send({
+    const firebaseService = getFirebaseService();
+    firebaseService?.send({
       type: "ADD_TASK",
       roomId: gameState.roomId,
       senderId: currentUser.id,
@@ -449,7 +599,8 @@ function App() {
 
   const deleteTask = (taskId: string) => {
     if (!currentUser?.isHost || !gameState.roomId) return;
-    socketService.send({
+    const firebaseService = getFirebaseService();
+    firebaseService?.send({
       type: "DELETE_TASK",
       roomId: gameState.roomId,
       senderId: currentUser.id,
@@ -459,7 +610,8 @@ function App() {
 
   const updateTask = (taskId: string, title: string) => {
     if (!currentUser?.isHost || !gameState.roomId) return;
-    socketService.send({
+    const firebaseService = getFirebaseService();
+    firebaseService?.send({
       type: "UPDATE_TASK",
       roomId: gameState.roomId,
       senderId: currentUser.id,
@@ -469,7 +621,8 @@ function App() {
 
   const selectTask = (taskId: string) => {
     if (!currentUser?.isHost || !gameState.roomId) return;
-    socketService.send({
+    const firebaseService = getFirebaseService();
+    firebaseService?.send({
       type: "SELECT_TASK",
       roomId: gameState.roomId,
       senderId: currentUser.id,
@@ -479,7 +632,8 @@ function App() {
 
   const promoteUser = (userId: string) => {
     if (!currentUser?.isHost || !gameState.roomId) return;
-    socketService.send({
+    const firebaseService = getFirebaseService();
+    firebaseService?.send({
       type: "PROMOTE_USER",
       roomId: gameState.roomId,
       senderId: currentUser.id,
@@ -488,8 +642,59 @@ function App() {
   };
 
   const copyRoomCode = () => {
-    if (gameState.roomId) {
-      navigator.clipboard.writeText(gameState.roomId);
+    if (!gameState.roomId) return;
+    
+    const textToCopy = gameState.roomId;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(textToCopy)
+        .then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        })
+        .catch(err => {
+          console.error("Failed to copy using navigator.clipboard:", err);
+          fallbackCopy(textToCopy);
+        });
+    } else {
+      fallbackCopy(textToCopy);
+    }
+  };
+
+  const fallbackCopy = (text: string) => {
+    try {
+      const textArea = document.createElement("textarea");
+      textArea.value = text;
+      textArea.style.position = "fixed";  // avoid scrolling to bottom
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+      const successful = document.execCommand("copy");
+      document.body.removeChild(textArea);
+      if (successful) {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      } else {
+        alert("Não foi possível copiar automaticamente. Código: " + text);
+      }
+    } catch (err) {
+      console.error("Fallback copy failed:", err);
+      alert("Não foi possível copiar automaticamente. Código: " + text);
+    }
+  };
+
+  const pasteRoomCode = async () => {
+    try {
+      if (navigator.clipboard && navigator.clipboard.readText) {
+        const text = await navigator.clipboard.readText();
+        if (text) {
+          const cleanText = text.trim().toUpperCase().substring(0, 6);
+          setRoomInput(cleanText);
+        }
+      } else {
+        alert("A leitura da área de transferência não é suportada neste navegador/contexto.");
+      }
+    } catch (err) {
+      console.error("Failed to read from clipboard:", err);
     }
   };
 
@@ -533,6 +738,26 @@ function App() {
               />
             </div>
 
+            <div className="flex items-center space-x-3 bg-slate-950/40 p-3 rounded-lg border border-slate-800/80 hover:border-slate-700/60 transition-all select-none">
+              <input
+                type="checkbox"
+                id="isObserver"
+                checked={isObserver}
+                onChange={(e) => setIsObserver(e.target.checked)}
+                disabled={isConnecting}
+                className="w-4.5 h-4.5 rounded border-slate-700 bg-slate-950 text-indigo-600 focus:ring-indigo-500 focus:ring-offset-slate-900 cursor-pointer"
+              />
+              <label
+                htmlFor="isObserver"
+                className="flex-1 text-sm text-slate-300 font-medium cursor-pointer"
+              >
+                Entrar como Observador
+                <span className="block text-[10px] text-slate-500 font-normal">
+                  Você não poderá votar, apenas assistir a votação.
+                </span>
+              </label>
+            </div>
+
             {errorMsg && (
               <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-sm text-center animate-in fade-in slide-in-from-top-2">
                 {errorMsg}
@@ -543,7 +768,7 @@ function App() {
               <div className="grid grid-cols-2 gap-4">
                 <button
                   onClick={createRoom}
-                  disabled={!userName || isConnecting}
+                  disabled={!userName || isConnecting || !isFirebaseReady}
                   className="flex flex-col items-center justify-center p-4 rounded-xl border-2 border-slate-700 hover:border-indigo-500 hover:bg-slate-800 transition-all group disabled:opacity-50 disabled:cursor-not-allowed relative"
                 >
                   {isConnecting && !roomInput ? (
@@ -559,18 +784,34 @@ function App() {
                 </button>
 
                 <div className="space-y-2">
-                  <input
-                    type="text"
-                    value={roomInput}
-                    onChange={(e) => setRoomInput(e.target.value.toUpperCase())}
-                    maxLength={6}
-                    disabled={isConnecting}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-center text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none uppercase tracking-widest disabled:opacity-50"
-                    placeholder="CODE"
-                  />
+                  <div className="relative flex items-center">
+                    <input
+                      type="text"
+                      value={roomInput}
+                      onChange={(e) => setRoomInput(e.target.value.toUpperCase())}
+                      maxLength={6}
+                      disabled={isConnecting}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-3 pr-10 py-2 text-center text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none uppercase tracking-widest disabled:opacity-50 font-mono"
+                      placeholder="CODE"
+                    />
+                    <button
+                      type="button"
+                      onClick={pasteRoomCode}
+                      disabled={isConnecting}
+                      className="absolute right-2 text-slate-500 hover:text-indigo-400 p-1 rounded transition-colors disabled:opacity-30"
+                      title="Colar código"
+                    >
+                      <ClipboardList className="w-4 h-4" />
+                    </button>
+                  </div>
                   <button
                     onClick={joinRoom}
-                    disabled={!userName || !roomInput || isConnecting}
+                    disabled={
+                      !userName ||
+                      !roomInput ||
+                      isConnecting ||
+                      !isFirebaseReady
+                    }
                     className="w-full bg-slate-800 hover:bg-indigo-600 text-white py-2 rounded-lg font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
                   >
                     {isConnecting && roomInput ? (
@@ -647,10 +888,16 @@ function App() {
               </span>
               <button
                 onClick={copyRoomCode}
-                className="text-slate-500 hover:text-white transition-colors ml-1"
-                title="Copy Code"
+                className={`transition-all duration-300 ml-1.5 p-1 rounded hover:bg-slate-800 ${
+                  copied ? "text-emerald-400" : "text-slate-500 hover:text-white"
+                }`}
+                title={copied ? "Código copiado!" : "Copiar código"}
               >
-                <Copy className="w-3.5 h-3.5" />
+                {copied ? (
+                  <Check className="w-3.5 h-3.5 text-emerald-400 animate-in fade-in zoom-in-50" />
+                ) : (
+                  <Copy className="w-3.5 h-3.5" />
+                )}
               </button>
             </div>
           </div>
@@ -715,19 +962,44 @@ function App() {
           </div>
 
           {/* Hand / Cards */}
-          <div className="bg-slate-900 border-t border-slate-800 p-6 z-10">
-            <div className="flex justify-center gap-2 md:gap-4 overflow-x-50 pb-2 md:pb-0 scrollbar-hide">
-              {FIBONACCI_SEQ.map((val) => (
-                <Card
-                  key={val}
-                  value={val}
-                  selected={gameState.votes[currentUser.id] === val}
-                  onClick={() => submitVote(val)}
-                  disabled={gameState.isRevealed || !activeTask}
-                />
-              ))}
+          {currentUser.isObserver ? (
+            <div className="bg-slate-900 border-t border-slate-800 p-6 z-10 flex flex-col items-center justify-center gap-3">
+              <div className="flex items-center gap-2 text-slate-400">
+                <Eye className="w-5 h-5 text-indigo-400 animate-pulse" />
+                <span className="text-sm font-semibold">Você está no modo Observador</span>
+              </div>
+              <p className="text-xs text-slate-500 text-center max-w-xs">
+                Como observador, você não participa das votações, mas pode ver os votos em tempo real assim que revelados.
+              </p>
+              <button
+                onClick={toggleObserverMode}
+                className="mt-1 bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-xs font-semibold transition border border-slate-700 hover:border-indigo-500 hover:text-indigo-400"
+              >
+                Mudar para Votante
+              </button>
             </div>
-          </div>
+          ) : (
+            <div className="bg-slate-900 border-t border-slate-800 p-6 z-10 flex flex-col items-center gap-4">
+              <div className="flex justify-center gap-2 md:gap-4 overflow-x-auto pb-2 md:pb-0 scrollbar-hide w-full max-w-2xl">
+                {FIBONACCI_SEQ.map((val) => (
+                  <Card
+                    key={val}
+                    value={val}
+                    selected={gameState.votes[currentUser.id] === val}
+                    onClick={() => submitVote(val)}
+                    disabled={gameState.isRevealed || !activeTask}
+                  />
+                ))}
+              </div>
+              <button
+                onClick={toggleObserverMode}
+                className="text-slate-500 hover:text-indigo-400 text-xs font-medium transition flex items-center gap-1.5"
+              >
+                <Eye className="w-3.5 h-3.5" />
+                Mudar para Observador
+              </button>
+            </div>
+          )}
         </main>
       </div>
     </div>
