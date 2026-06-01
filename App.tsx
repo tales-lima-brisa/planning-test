@@ -1174,10 +1174,10 @@ function App() {
           ) : (
             <div className="bg-slate-950/80 backdrop-blur-md border-t border-slate-900 p-3 pb-5 md:p-5 z-10 flex flex-col items-center gap-3 shrink-0">
               {/* Scroll de cartas otimizado para Mobile touch e desktop drag */}
-              <div className="w-full flex justify-center">
-                <div className="flex max-w-1xl gap-2 md:gap-3 overflow-x-auto px-4 py-2 md:py-1 scrollbar-none snap-x snap-mandatory scroll-smooth touch-pan-x">
+              <div className="z-100 w-full flex justify-center">
+                <div className="flex max-w-1xl gap-2 md:gap-3 overflow-x-auto px-4 py-4 md:py-2 scrollbar-none snap-x snap-mandatory scroll-smooth touch-pan-x">
                   {FIBONACCI_SEQ.map((val) => (
-                    <div key={val} className="snap-center shrink-0">
+                    <div key={val} className="snap-center shrink-0 mt-4">
                       <Card
                         value={val}
                         selected={gameState.votes[currentUser.id] === val}
