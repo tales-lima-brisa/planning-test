@@ -1010,7 +1010,7 @@ function App() {
     <div className="flex h-screen w-screen bg-slate-950 overflow-hidden relative font-sans antialiased select-none">
       {/* Mobile Sidebar Toggle */}
       <button
-        className="md:hidden absolute top-3 left-3 z-50 p-2.5 bg-slate-900/90 backdrop-blur-sm rounded-xl text-white border border-slate-800 shadow-xl active:scale-95 transition-transform"
+        className="md:hidden absolute top-2 mb-2 left-2 z-50 p-2.5 bg-slate-900/90 backdrop-blur-sm rounded-xl text-white border border-slate-800 shadow-xl active:scale-95 transition-transform"
         onClick={() => setShowSidebar(!showSidebar)}
         aria-label="Toggle menu"
       >
