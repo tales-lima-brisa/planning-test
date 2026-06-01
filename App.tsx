@@ -894,6 +894,7 @@ function App() {
                 value={userName}
                 onChange={(e) => setUserName(e.target.value)}
                 disabled={isConnecting}
+                maxLength={32}
                 className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition disabled:opacity-50"
                 placeholder="e.g. John Doe"
               />
