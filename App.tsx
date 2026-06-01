@@ -990,12 +990,6 @@ function App() {
                 </div>
               </div>
             </div>
-
-            <div className="text-center mt-4">
-              <p className="text-[10px] text-slate-600">
-                Connected to Railway Server
-              </p>
-            </div>
           </div>
         </div>
       </div>
@@ -1072,7 +1066,7 @@ function App() {
                 </button>
                 <button
                   onClick={handleCopyRoomUrl}
-                  className={`transition-colors p-1 rounded-md hover:bg-slate-800 active:bg-slate-700 hidden sm:inline-flex ${
+                  className={`transition-colors p-1 rounded-md hover:bg-slate-800 active:bg-slate-700 sm:inline-flex ${
                     copiedUrl ? "text-emerald-400" : "text-slate-500"
                   }`}
                   title={copiedUrl ? "Link copiado!" : "Copiar Link da Sala"}
