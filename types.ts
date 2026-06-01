@@ -1,4 +1,3 @@
-
 export interface User {
   id: string;
   name: string;
@@ -14,7 +13,7 @@ export interface Vote {
 export interface Task {
   id: string;
   title: string;
-  status: 'pending' | 'active' | 'completed';
+  status: "pending" | "active" | "completed";
   finalScore?: string | number;
 }
 
@@ -27,19 +26,19 @@ export interface GameState {
   isRevealed: boolean;
 }
 
-export type MessageType = 
-  | 'JOIN' 
-  | 'SYNC_REQUEST' 
-  | 'SYNC_RESPONSE' 
-  | 'VOTE' 
-  | 'REVEAL' 
-  | 'RESET' 
-  | 'ADD_TASK' 
-  | 'DELETE_TASK'
-  | 'UPDATE_TASK'
-  | 'SELECT_TASK'
-  | 'USER_LEFT'
-  | 'PROMOTE_USER';
+export type MessageType =
+  | "JOIN"
+  | "SYNC_REQUEST"
+  | "SYNC_RESPONSE"
+  | "VOTE"
+  | "REVEAL"
+  | "RESET"
+  | "ADD_TASK"
+  | "DELETE_TASK"
+  | "UPDATE_TASK"
+  | "SELECT_TASK"
+  | "USER_LEFT"
+  | "PROMOTE_USER";
 
 export interface NetworkMessage {
   type: MessageType;
@@ -48,4 +47,18 @@ export interface NetworkMessage {
   senderId: string;
 }
 
-export const FIBONACCI_SEQ = ['0', '1', '2', '3', '5', '8', '13', '21', '34', '55', '?', '☕'];
+export const FIBONACCI_SEQ = [
+  "0",
+  "½",
+  "1",
+  "2",
+  "3",
+  "5",
+  "8",
+  "13",
+  "20",
+  "40",
+  "100",
+  "?",
+  "☕",
+];
