@@ -803,8 +803,8 @@ function App() {
       navigator.clipboard
         .writeText(url)
         .then(() => {
-          setCopied(true);
-          setTimeout(() => setCopied(false), 2000);
+          setCopiedUrl(true);
+          setTimeout(() => setCopiedUrl(false), 2000);
         })
         .catch((err) => {
           console.error("Failed to copy using navigator.clipboard:", err);
@@ -1007,25 +1007,30 @@ function App() {
   );
 
   return (
-    <div className="flex h-screen bg-slate-950 overflow-hidden">
+    <div className="flex h-screen w-screen bg-slate-950 overflow-hidden relative font-sans antialiased select-none">
       {/* Mobile Sidebar Toggle */}
       <button
-        className="md:hidden absolute top-4 left-4 z-50 p-2 bg-slate-800 rounded-md text-white border border-slate-700"
+        className="md:hidden absolute top-3 left-3 z-50 p-2.5 bg-slate-900/90 backdrop-blur-sm rounded-xl text-white border border-slate-800 shadow-xl active:scale-95 transition-transform"
         onClick={() => setShowSidebar(!showSidebar)}
+        aria-label="Toggle menu"
       >
-        {showSidebar ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+        {showSidebar ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
       </button>
+
+      {/* Backdrop para fechar o menu mobile ao clicar fora */}
+      {showSidebar && (
+        <div
+          className="fixed inset-0 bg-black/60 z-30 md:hidden backdrop-blur-xs transition-opacity"
+          onClick={() => setShowSidebar(false)}
+        />
+      )}
 
       {/* Sidebar (Task List) */}
       <div
         className={`
-            fixed md:relative z-40 h-full transition-transform duration-300 transform 
-            ${
-              showSidebar
-                ? "translate-x-0"
-                : "-translate-x-full md:translate-x-0"
-            }
-        `}
+        fixed md:relative z-40 h-full w-[280px] sm:w-[320px] md:w-auto transition-transform duration-300 ease-in-out transform 
+        ${showSidebar ? "translate-x-0" : "-translate-x-full md:translate-x-0"}
+    `}
       >
         <TaskList
           tasks={gameState.tasks}
@@ -1039,145 +1044,154 @@ function App() {
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 h-full relative">
         {/* Header */}
-        <header className="h-16 border-b border-slate-800 flex items-center justify-between px-6 bg-slate-950">
-          <div className="flex items-center gap-4 ml-10 md:ml-0">
-            <div className="flex items-center gap-2 bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-800">
-              <span className="text-slate-400 text-xs font-semibold tracking-wider">
+        <header className="h-14 md:h-16 border-b border-slate-900 flex items-center justify-between px-4 md:px-6 bg-slate-950/50 backdrop-blur-md shrink-0">
+          <div className="flex items-center gap-2 ml-12 md:ml-0 max-w-[60%] sm:max-w-none">
+            <div className="flex items-center gap-1.5 bg-slate-900 px-2.5 py-1 rounded-lg border border-slate-800/60 overflow-hidden">
+              <span className="text-slate-500 text-[10px] font-bold tracking-wider hidden sm:inline">
                 ROOM
               </span>
-              <span className="text-white font-mono font-bold tracking-widest">
+              <span className="text-white font-mono text-xs md:text-sm font-bold tracking-wider truncate max-w-[80px] sm:max-w-none">
                 {gameState.roomId}
               </span>
-              <button
-                onClick={copyRoomCode}
-                className={`transition-all duration-300 ml-1.5 p-1 rounded hover:bg-slate-800 ${
-                  copied
-                    ? "text-emerald-400"
-                    : "text-slate-500 hover:text-white"
-                }`}
-                title={copied ? "Código copiado!" : "Copiar código"}
-              >
-                {copied ? (
-                  <Check className="w-3.5 h-3.5 text-emerald-400 animate-in fade-in zoom-in-50" />
-                ) : (
-                  <Copy className="w-3.5 h-3.5" />
-                )}
-              </button>
-              <button
-                onClick={handleCopyRoomUrl}
-                className={`transition-all duration-300 ml-1.5 p-1 rounded hover:bg-slate-800 ${
-                  copiedUrl
-                    ? "text-emerald-400"
-                    : "text-slate-500 hover:text-white"
-                }`}
-                title={copiedUrl ? "Link copiado!" : "Copiar Link da Sala"}
-              >
-                {copiedUrl ? (
-                  <Check className="w-3.5 h-3.5 text-emerald-400 animate-in fade-in zoom-in-50" />
-                ) : (
-                  <Share2 className="w-3.5 h-3.5" />
-                )}
-              </button>
+              <div className="flex gap-0.5 shrink-0">
+                <button
+                  onClick={copyRoomCode}
+                  className={`transition-colors p-1 rounded-md hover:bg-slate-800 active:bg-slate-700 ${
+                    copied ? "text-emerald-400" : "text-slate-500"
+                  }`}
+                  title={copied ? "Código copiado!" : "Copiar código"}
+                >
+                  {copied ? (
+                    <Check className="w-3.5 h-3.5" />
+                  ) : (
+                    <Copy className="w-3.5 h-3.5" />
+                  )}
+                </button>
+                <button
+                  onClick={handleCopyRoomUrl}
+                  className={`transition-colors p-1 rounded-md hover:bg-slate-800 active:bg-slate-700 hidden sm:inline-flex ${
+                    copiedUrl ? "text-emerald-400" : "text-slate-500"
+                  }`}
+                  title={copiedUrl ? "Link copiado!" : "Copiar Link da Sala"}
+                >
+                  {copiedUrl ? (
+                    <Check className="w-3.5 h-3.5" />
+                  ) : (
+                    <Share2 className="w-3.5 h-3.5" />
+                  )}
+                </button>
+              </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <div className="flex flex-col items-end hidden md:flex">
-              <span className="text-white font-medium text-sm">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className="flex flex-col items-end text-right">
+              <span className="text-white font-medium text-xs md:text-sm max-w-[80px] sm:max-w-[120px] truncate">
                 {currentUser.name}
               </span>
-              <span className="text-xs text-slate-500 text-right">
-                Online {currentUser.isHost && "(Host)"}
+              <span className="text-[10px] text-slate-500 font-medium">
+                {currentUser.isHost ? "Host" : "Votante"}
               </span>
             </div>
-            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-500 to-violet-500 flex items-center justify-center text-white font-bold text-xs relative">
+            <div className="w-7 h-7 md:w-8 md:h-8 rounded-full bg-gradient-to-tr from-indigo-500 to-violet-500 flex items-center justify-center text-white font-bold text-xs relative shrink-0 shadow-inner">
               {currentUser.name.substring(0, 2).toUpperCase()}
               {currentUser.isHost && (
-                <div className="absolute -top-1 -right-1 bg-yellow-500 rounded-full p-0.5 border border-slate-900">
-                  <div className="w-1.5 h-1.5 bg-yellow-900 rounded-full" />
+                <div className="absolute -top-0.5 -right-0.5 bg-amber-400 rounded-full p-0.5 border border-slate-950">
+                  <div className="w-1 h-1 bg-amber-900 rounded-full" />
                 </div>
               )}
             </div>
             <button
               onClick={exitRoom}
-              className="ml-2 p-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-full transition-colors"
-              title="Exit Room"
+              className="p-1.5 sm:p-2 bg-red-500/10 hover:bg-red-500/20 active:scale-95 text-red-400 rounded-lg transition-all"
+              title="Sair da Sala"
             >
-              <LogOut className="w-4 h-4" />
+              <LogOut className="w-3.5 h-3.5 md:w-4 md:h-4" />
             </button>
           </div>
         </header>
 
         {/* Game Area */}
-        <main className="flex-1 relative flex flex-col">
+        <main className="flex-1 flex flex-col min-h-0 overflow-hidden bg-radial from-slate-900 to-slate-950">
           {/* Active Task Banner */}
-          <div className="bg-slate-900/50 border-b border-slate-800 p-4 text-center">
+          <div className="bg-slate-900/40 border-b border-slate-900 px-4 py-2.5 text-center shrink-0">
             {activeTask ? (
-              <>
-                <h2 className="text-slate-400 text-xs uppercase tracking-widest mb-1">
-                  Voting On
+              <div className="max-w-xl mx-auto">
+                <h2 className="text-slate-500 text-[10px] uppercase tracking-widest font-bold mb-0.5">
+                  Votando em
                 </h2>
-                <h3 className="text-xl md:text-2xl font-bold text-white max-w-2xl mx-auto truncate">
+                <h3 className="text-sm md:text-lg font-bold text-white truncate px-2">
                   {activeTask.title}
                 </h3>
-              </>
+              </div>
             ) : (
-              <div className="text-slate-500 italic">
-                No task selected.{" "}
-                {currentUser.isHost && "Select one from the sidebar."}
+              <div className="text-xs text-slate-500 italic py-1">
+                Nenhuma tarefa selecionada.{" "}
+                {currentUser.isHost && (
+                  <span className="hidden sm:inline">
+                    Escolha uma no menu lateral.
+                  </span>
+                )}
               </div>
             )}
           </div>
 
           {/* Poker Table */}
-          <div className="flex-1 flex items-center justify-center p-4 overflow-hidden">
-            <Table
-              gameState={gameState}
-              currentUser={currentUser}
-              onReveal={revealVotes}
-              onReset={resetRound}
-              onPromote={promoteUser}
-            />
+          <div className="flex-1 flex items-center justify-center p-3 md:p-6 overflow-hidden min-h-0">
+            <div className="w-full h-full max-w-4xl max-h-[450px] flex items-center justify-center">
+              <Table
+                gameState={gameState}
+                currentUser={currentUser}
+                onReveal={revealVotes}
+                onReset={resetRound}
+                onPromote={promoteUser}
+              />
+            </div>
           </div>
 
-          {/* Hand / Cards */}
+          {/* Hand / Cards Container */}
           {currentUser.isObserver ? (
-            <div className="bg-slate-900 border-t border-slate-800 p-6 z-10 flex flex-col items-center justify-center gap-3">
+            <div className="bg-slate-950/80 backdrop-blur-md border-t border-slate-900 p-4 pb-6 md:p-6 z-10 flex flex-col items-center justify-center gap-2 shrink-0">
               <div className="flex items-center gap-2 text-slate-400">
-                <Eye className="w-5 h-5 text-indigo-400 animate-pulse" />
-                <span className="text-sm font-semibold">
-                  Você está no modo Observador
+                <Eye className="w-4 h-4 text-indigo-400 animate-pulse" />
+                <span className="text-xs md:text-sm font-semibold">
+                  Modo Observador Ativo
                 </span>
               </div>
-              <p className="text-xs text-slate-500 text-center max-w-xs">
-                Como observador, você não participa das votações, mas pode ver
-                os votos em tempo real assim que revelados.
+              <p className="text-[11px] text-slate-500 text-center max-w-xs leading-relaxed hidden sm:block">
+                Você acompanha a rodada e vê as revelações em tempo real sem
+                votar.
               </p>
               <button
                 onClick={toggleObserverMode}
-                className="mt-1 bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-xs font-semibold transition border border-slate-700 hover:border-indigo-500 hover:text-indigo-400"
+                className="mt-1 bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-xl text-xs font-semibold transition border border-slate-800 active:scale-95"
               >
                 Mudar para Votante
               </button>
             </div>
           ) : (
-            <div className="bg-slate-900 border-t border-slate-800 p-6 z-10 flex flex-col items-center gap-4">
-              <div className="flex justify-center gap-2 md:gap-4 overflow-x-auto pb-2 md:pb-0 scrollbar-hide w-full max-w-2xl">
-                {FIBONACCI_SEQ.map((val) => (
-                  <Card
-                    key={val}
-                    value={val}
-                    selected={gameState.votes[currentUser.id] === val}
-                    onClick={() => submitVote(val)}
-                    disabled={gameState.isRevealed || !activeTask}
-                  />
-                ))}
+            <div className="bg-slate-950/80 backdrop-blur-md border-t border-slate-900 p-3 pb-5 md:p-5 z-10 flex flex-col items-center gap-3 shrink-0">
+              {/* Scroll de cartas otimizado para Mobile touch e desktop drag */}
+              <div className="w-full flex justify-center">
+                <div className="flex max-w-1xl gap-2 md:gap-3 overflow-x-auto px-4 py-2 md:py-1 scrollbar-none snap-x snap-mandatory scroll-smooth touch-pan-x">
+                  {FIBONACCI_SEQ.map((val) => (
+                    <div key={val} className="snap-center shrink-0">
+                      <Card
+                        value={val}
+                        selected={gameState.votes[currentUser.id] === val}
+                        onClick={() => submitVote(val)}
+                        disabled={gameState.isRevealed || !activeTask}
+                      />
+                    </div>
+                  ))}
+                </div>
               </div>
+
               <button
                 onClick={toggleObserverMode}
-                className="text-slate-500 hover:text-indigo-400 text-xs font-medium transition flex items-center gap-1.5"
+                className="text-slate-500 hover:text-indigo-400 active:text-indigo-300 text-xs font-medium transition flex items-center gap-1.5 py-1 px-3 rounded-lg hover:bg-slate-900"
               >
                 <Eye className="w-3.5 h-3.5" />
                 Mudar para Observador
