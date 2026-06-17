@@ -72,7 +72,7 @@ export const TaskList: React.FC<TaskListProps> = ({
           </div>
         )}
         
-        {tasks.map(task => (
+        {[...tasks].sort((a, b) => a.title.localeCompare(b.title)).map(task => (
           <div 
             key={task.id}
             className={`
